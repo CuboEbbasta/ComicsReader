@@ -1,0 +1,10 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# chiave di firma: mai nel repo pubblico (sta nei Secrets di GitHub; copia locale in ~/.lumetto)
+*.keystore
+*.jks

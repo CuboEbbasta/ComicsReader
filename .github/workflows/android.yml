@@ -1,0 +1,74 @@
+name: APK Android
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'android/**', '.github/workflows/android.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    env:
+      LUMETTO_STORE_PASSWORD: ${{ secrets.LUMETTO_STORE_PASSWORD }}
+      LUMETTO_KEY_PASSWORD: ${{ secrets.LUMETTO_KEY_PASSWORD }}
+      LUMETTO_KEY_ALIAS: ${{ secrets.LUMETTO_KEY_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # La chiave di firma sta nei Secrets di GitHub (il repo e' pubblico): niente keystore nel repo.
+      - name: Prepara la chiave di firma
+        env:
+          KEYSTORE_B64: ${{ secrets.LUMETTO_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/lumetto.keystore"
+            echo "LUMETTO_KEYSTORE=$RUNNER_TEMP/lumetto.keystore" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Mancano i Secrets LUMETTO_*: l'APK non verra' firmato"
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Test (cifratura e unione della sincronizzazione)
+        run: gradle --no-daemon :app:testReleaseUnitTest
+
+      - name: Compila l'APK
+        run: gradle --no-daemon :app:assembleRelease
+
+      - name: Rinomina l'APK
+        run: |
+          if [ ! -f app/build/outputs/apk/release/app-release.apk ]; then
+            echo "::error::APK firmato non prodotto: la compilazione e' riuscita ma mancano i Secrets di firma (LUMETTO_*)."
+            ls app/build/outputs/apk/release/ || true
+            exit 1
+          fi
+          cp app/build/outputs/apk/release/app-release.apk Lumetto.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lumetto-APK
+          path: android/Lumetto.apk
+
+      # Link fisso per scaricare l'ultimo APK: .../releases/download/android-latest/Lumetto.apk
+      - name: Pubblica come release "android-latest"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Lumetto Android (ultima build)
+          prerelease: true
+          make_latest: false
+          files: android/Lumetto.apk
