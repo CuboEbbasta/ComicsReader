@@ -22,7 +22,7 @@ object LibraryNavigator {
 
     private const val KEY = "library.lastFolder"
 
-    private fun setCurrent(folder: ComicFolder?) {
+    private fun moveTo(folder: ComicFolder?) {
         current = folder
         folder?.let { AppContext.prefs.edit().putString(KEY, it.relativePath).apply() }
     }
@@ -74,7 +74,7 @@ object LibraryNavigator {
         val target = currentRow.firstOrNull { it.id == id } ?: return
         if (target == current) return
         lastMove = Move.HORIZONTAL
-        setCurrent(target)
+        moveTo(target)
     }
 
     fun goLeft() { current?.let { c -> neighbors(c).first?.let { go(it) } } }
@@ -98,6 +98,6 @@ object LibraryNavigator {
             c.relativePath.startsWith(target.relativePath) -> Move.UP
             else -> Move.DOWN
         }
-        setCurrent(target)
+        moveTo(target)
     }
 }

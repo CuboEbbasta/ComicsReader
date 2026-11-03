@@ -214,7 +214,7 @@ object SyncManager {
         lastError = null
     }
 
-    fun setDeviceName(name: String) {
+    fun renameDevice(name: String) {
         val trimmed = name.trim().take(40)
         if (trimmed.isEmpty() || trimmed == deviceName) return
         deviceName = trimmed

@@ -58,7 +58,7 @@ fun SyncSettingsScreen() {
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf(sync.deviceName) }
     var confirmLeave by remember { mutableStateOf(false) }
-    DisposableEffect(Unit) { onDispose { sync.setDeviceName(name) } }
+    DisposableEffect(Unit) { onDispose { sync.renameDevice(name) } }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp)) {
         val current = sync.roomName
