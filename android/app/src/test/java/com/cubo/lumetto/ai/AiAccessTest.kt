@@ -136,7 +136,15 @@ class AiHttpServerTest {
 
     @Test
     fun browserRequestsAreRefused() {
-        assertEquals(403, request("GET", "/api/tools", origin = "http://evil.example").first)
+        // HttpURLConnection non invia "Origin" (intestazione riservata): si usa un socket grezzo.
+        val reply = java.net.Socket("127.0.0.1", server.boundPort).use { s ->
+            s.getOutputStream().write(
+                "GET /api/tools HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer segreto\r\nOrigin: http://evil.example\r\n\r\n".toByteArray()
+            )
+            s.getOutputStream().flush()
+            s.getInputStream().readBytes().toString(Charsets.UTF_8)
+        }
+        assertTrue(reply.startsWith("HTTP/1.1 403"))
     }
 
     @Test
