@@ -2,7 +2,7 @@ name: APK Android
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, ai-access ]
     paths: [ 'android/**', '.github/workflows/android.yml' ]
   workflow_dispatch:
 
@@ -65,6 +65,7 @@ jobs:
 
       # Link fisso per scaricare l'ultimo APK: .../releases/download/android-latest/Lumetto.apk
       - name: Pubblica come release "android-latest"
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-latest

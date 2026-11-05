@@ -23,5 +23,6 @@ class LumettoApp : Application() {
         IncognitoStore.load()
         FileAccess.load()
         SyncManager.init(this)
+        com.cubo.lumetto.ai.AiAccess.load()
     }
 }

@@ -161,7 +161,7 @@ fun FormLink(label: String, detail: String? = null, onClick: () -> Unit) {
 
 // ---------------------------------------------------------------------------------------------
 
-private enum class SettingsPage { MAIN, SYNC, STATS }
+private enum class SettingsPage { MAIN, SYNC, STATS, AI }
 
 @Composable
 fun SettingsScreen(activity: MainActivity, onClose: () -> Unit) {
@@ -171,7 +171,11 @@ fun SettingsScreen(activity: MainActivity, onClose: () -> Unit) {
         when (page) {
             SettingsPage.MAIN -> {
                 SheetTopBar("Impostazioni", trailing = "Fine", onTrailing = onClose)
-                MainSettings(activity, openSync = { page = SettingsPage.SYNC }, openStats = { page = SettingsPage.STATS })
+                MainSettings(activity, openSync = { page = SettingsPage.SYNC }, openStats = { page = SettingsPage.STATS }, openAi = { page = SettingsPage.AI })
+            }
+            SettingsPage.AI -> {
+                SheetTopBar("Accesso AI", leading = "Indietro", onLeading = { page = SettingsPage.MAIN })
+                com.cubo.lumetto.ai.AiSettingsScreen()
             }
             SettingsPage.SYNC -> {
                 SheetTopBar("Sincronizzazione", leading = "Indietro", onLeading = { page = SettingsPage.MAIN })
@@ -186,7 +190,7 @@ fun SettingsScreen(activity: MainActivity, onClose: () -> Unit) {
 }
 
 @Composable
-private fun MainSettings(activity: MainActivity, openSync: () -> Unit, openStats: () -> Unit) {
+private fun MainSettings(activity: MainActivity, openSync: () -> Unit, openStats: () -> Unit, openAi: () -> Unit) {
     val context = LocalContext.current
     var confirmFolder by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -288,6 +292,10 @@ private fun MainSettings(activity: MainActivity, openSync: () -> Unit, openStats
 
         FormSection("Sincronizzazione", footer = "Progressi, segnalibri ed evidenziazioni passano direttamente tra i tuoi dispositivi sulla stessa rete Wi-Fi, cifrati. Nessun server.") {
             FormLink("Sincronizzazione", SyncManager.roomName ?: "Spenta", onClick = openSync)
+        }
+
+        FormSection("Accesso AI", footer = "Lascia che un'AI legga e usi Lumetto (MCP / REST). Spento di default.") {
+            FormLink("Accesso AI", if (com.cubo.lumetto.ai.AiAccess.enabled) "Attivo" else "Spento", onClick = openAi)
         }
 
         FormSection("Dati") {
