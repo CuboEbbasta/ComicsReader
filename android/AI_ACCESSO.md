@@ -41,3 +41,14 @@ Le pagine si contano da 0. I percorsi sono relativi alla cartella principale (co
 Codice: `app/src/main/java/com/cubo/lumetto/ai/`. Test: `app/src/test/.../ai/AiAccessTest.kt`.
 
 Dal PC: vedi `../tools/lumetto-bridge/` (ponte stdio per Claude Desktop, Claude Code e altri client MCP).
+
+## Come verificare che funzioni
+1. **Sul telefono**: Impostazioni → Accesso AI → attiva, poi «Verifica funzionamento». Deve scrivere «OK: il server funziona (23 strumenti)».
+2. **Dal PC** (stessa rete Wi-Fi), con indirizzo e token mostrati nella schermata:
+   - `curl http://IP:8765/health` → `{"app":"Lumetto","ai":true}`
+   - `node tools/lumetto-bridge/bridge.mjs --url http://IP:8765 --token lum_... --check` → «token valido, 23 strumenti disponibili»
+   - `curl -X POST http://IP:8765/api/tools/library_overview -H "Authorization: Bearer lum_..."` → panoramica della libreria
+3. **Con un'AI**: aggiungi il server e chiedi «elenca le cartelle della mia libreria Lumetto».
+   - Claude Code: `claude mcp add --transport http lumetto http://IP:8765/mcp --header "Authorization: Bearer lum_..."`
+   - Claude Desktop e altri client stdio: usa il ponte in `tools/lumetto-bridge/` (vedi il suo README).
+4. **Modifiche**: con «Consenti modifiche» spento, uno strumento di scrittura (es. `set_progress`) deve rispondere «Modifiche disattivate»; acceso, la modifica compare nell'app e nell'elenco «Ultime richieste».

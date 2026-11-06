@@ -74,6 +74,12 @@ fun AiSettingsScreen() {
         FormSection("Collegare un'AI", footer = "Il token è come una password: chi lo ha può usare gli strumenti attivi. Rigeneralo se pensi sia trapelato.") {
             FormValue("Token", AiAccess.token.take(8) + "…")
             FormDivider()
+            FormButton("Verifica funzionamento") { AiAccess.selfTest() }
+            AiAccess.testResult?.let {
+                FormDivider()
+                FormRow { Text(it, color = LColors.textSecondary, fontSize = 13.sp) }
+            }
+            FormDivider()
             FormButton("Copia token") { clipboard.setText(AnnotatedString(AiAccess.token)); copied = "Token copiato" }
             FormDivider()
             FormButton("Copia configurazione MCP") { clipboard.setText(AnnotatedString(AiAccess.mcpConfig())); copied = "Configurazione copiata" }

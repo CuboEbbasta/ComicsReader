@@ -8,7 +8,10 @@ import kotlin.math.max
 object FocusAnalysis {
     private const val ANALYSIS_PIXELS = 480
 
-    fun analyze(page: Bitmap, mode: ReadingMode, rtl: Boolean): List<NormRect> {
+    /** [bubbles] = true se i riquadri sono fumetti (da ingrandire a parte), false se sono vignette (da inquadrare). */
+    class Result(val rects: List<NormRect>, val bubbles: Boolean)
+
+    fun analyze(page: Bitmap, mode: ReadingMode, rtl: Boolean): Result {
         val scale = ANALYSIS_PIXELS.toFloat() / max(page.width, page.height)
         val w = max(16, (page.width * scale).toInt())
         val h = max(16, (page.height * scale).toInt())
@@ -21,12 +24,9 @@ object FocusAnalysis {
             (0.299f * ((c shr 16) and 0xFF) + 0.587f * ((c shr 8) and 0xFF) + 0.114f * (c and 0xFF)).toInt()
         }
         val panels = PanelDetector.panels(lum, w, h, rtl)
-        if (mode == ReadingMode.GUIDED) return if (panels.size >= 2) panels else emptyList()
+        val usablePanels = if (panels.size >= 2) panels else emptyList()
+        if (mode == ReadingMode.GUIDED) return Result(usablePanels, false)
         val bubbles = PanelDetector.bubbles(lum, w, h, rtl, panels)
-        return when {
-            bubbles.isNotEmpty() -> bubbles
-            panels.size >= 2 -> panels
-            else -> emptyList()
-        }
+        return if (bubbles.isNotEmpty()) Result(bubbles, true) else Result(usablePanels, false)
     }
 }

@@ -214,6 +214,8 @@ fun ImageReader(comic: ComicFile, onClose: () -> Unit) {
             else -> CircularProgressIndicator(color = LColors.accent, modifier = Modifier.align(Alignment.Center))
         }
 
+        if (loader != null) BubbleOverlay(vm, loader)
+
         AnimatedVisibility(vm.showControls && loader != null, enter = fadeIn(), exit = fadeOut()) {
             ReaderControls(vm, compact, onClose)
         }

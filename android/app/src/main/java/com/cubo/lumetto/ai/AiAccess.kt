@@ -100,6 +100,38 @@ object AiAccess {
         }
     }
 
+    /** Esito dell'ultima verifica ("Verifica funzionamento"). */
+    var testResult by mutableStateOf<String?>(null)
+        private set
+
+    /** Chiede al proprio server l'elenco degli strumenti, come farebbe un'AI: prova porta, token e protocollo. */
+    fun selfTest() {
+        if (!_enabled) { testResult = "Accesso AI spento: attivalo prima."; return }
+        testResult = "Verifica in corso…"
+        val port = _port
+        val token = _token
+        Thread {
+            val message = try {
+                val body = """{"jsonrpc":"2.0","id":1,"method":"tools/list"}"""
+                java.net.Socket("127.0.0.1", port).use { s ->
+                    s.soTimeout = 5000
+                    val req = "POST /mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer $token\r\n" +
+                        "Content-Type: application/json\r\nContent-Length: ${body.toByteArray().size}\r\nConnection: close\r\n\r\n$body"
+                    s.getOutputStream().write(req.toByteArray())
+                    s.getOutputStream().flush()
+                    val reply = s.getInputStream().readBytes().toString(Charsets.UTF_8)
+                    if (!reply.startsWith("HTTP/1.1 200")) throw IllegalStateException(reply.lineSequence().firstOrNull() ?: "nessuna risposta")
+                    val count = org.json.JSONObject(reply.substringAfter("\r\n\r\n")).getJSONObject("result").getJSONArray("tools").length()
+                    val where = urls().firstOrNull()?.let { " Dal PC: $it/health deve rispondere." } ?: " Wi-Fi non trovato: collega il telefono alla rete."
+                    "OK: il server funziona ($count strumenti).$where"
+                }
+            } catch (e: Exception) {
+                "Errore: ${e.message ?: e.javaClass.simpleName}"
+            }
+            onMain { testResult = message }
+        }.start()
+    }
+
     /** Indirizzi con cui raggiungere il telefono (rete locale, oppure solo localhost). */
     fun urls(): List<String> {
         if (!_lan) return listOf("http://127.0.0.1:$_port")

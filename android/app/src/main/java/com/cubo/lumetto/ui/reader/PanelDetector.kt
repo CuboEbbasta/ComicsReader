@@ -34,38 +34,60 @@ data class NormRect(val left: Float, val top: Float, val right: Float, val botto
  * Logica pura: si prova con i test.
  */
 object PanelDetector {
-    private const val CONTENT_DELTA = 48
-    private const val GUTTER_FRACTION = 0.012f
+    /** Parametri di un tentativo: contrasto minimo, tolleranza dei disegni che invadono la canalina, larghezza minima. */
+    private class Pass(val delta: Int, val gutter: Float, val minGap: Float)
+
+    // Dal più rigoroso al più tollerante: si usa il primo che trova almeno due vignette plausibili.
+    private val PASSES = listOf(Pass(48, 0.012f, 0.008f), Pass(34, 0.025f, 0.006f), Pass(24, 0.045f, 0.005f))
+    private const val MAX_PANELS = 14
 
     /** Vignette nell'ordine di lettura. Almeno una: se non ne trova, la pagina intera. */
     fun panels(lum: IntArray, w: Int, h: Int, rtl: Boolean): List<NormRect> {
         if (w < 16 || h < 16 || lum.size < w * h) return listOf(NormRect.FULL)
         val bg = borderMedian(lum, w, h)
-        val content = BooleanArray(w * h) { abs(lum[it] - bg) > CONTENT_DELTA }
-        val minGapX = max(3, (w * 0.008f).roundToInt())
-        val minGapY = max(3, (h * 0.008f).roundToInt())
-        val minPieceX = (w * 0.08f).roundToInt()
-        val minPieceY = (h * 0.08f).roundToInt()
+        var best = listOf(NormRect.FULL)
+        for (pass in PASSES) {
+            val found = detect(lum, w, h, rtl, bg, pass)
+            if (found.size in 2..MAX_PANELS) return found
+            if (found.size in (best.size + 1)..MAX_PANELS) best = found
+        }
+        return best
+    }
+
+    private fun detect(lum: IntArray, w: Int, h: Int, rtl: Boolean, bg: Int, pass: Pass): List<NormRect> {
+        val gutterFraction = pass.gutter
+        val content = BooleanArray(w * h) { abs(lum[it] - bg) > pass.delta }
+        val minGapX = max(2, (w * pass.minGap).roundToInt())
+        val minGapY = max(2, (h * pass.minGap).roundToInt())
+        val minPieceX = (w * 0.07f).roundToInt()
+        val minPieceY = (h * 0.07f).roundToInt()
 
         val leaves = ArrayList<IntArray>() // x0, y0, x1, y1 (esclusi x1, y1)
         fun cut(x0: Int, y0: Int, x1: Int, y1: Int, depth: Int) {
-            val box = trim(content, w, x0, y0, x1, y1) ?: return
+            val box = trim(content, w, x0, y0, x1, y1, gutterFraction) ?: return
             val (bx0, by0, bx1, by1) = box
             if (depth < 8) {
-                splitPoint(content, w, box, horizontal = true, minGap = minGapY, minPiece = minPieceY)?.let { (a, b) ->
-                    cut(bx0, by0, bx1, a, depth + 1)
-                    cut(bx0, b, bx1, by1, depth + 1)
-                    return
-                }
-                splitPoint(content, w, box, horizontal = false, minGap = minGapX, minPiece = minPieceX)?.let { (a, b) ->
-                    if (rtl) {
-                        cut(b, by0, bx1, by1, depth + 1)
-                        cut(bx0, by0, a, by1, depth + 1)
-                    } else {
-                        cut(bx0, by0, a, by1, depth + 1)
-                        cut(b, by0, bx1, by1, depth + 1)
+                val big = (bx1 - bx0).toFloat() * (by1 - by0) > w.toFloat() * h * 0.12f
+                // Prima canaline pulite; sulle regioni grandi, poi anche canaline con qualche disegno che le invade.
+                val attempts = if (big) listOf(gutterFraction to 1f, min(0.06f, gutterFraction * 3.5f) to 2.2f) else listOf(gutterFraction to 1f)
+                for ((gf, gapScale) in attempts) {
+                    val gapY = (minGapY * gapScale).roundToInt()
+                    val gapX = (minGapX * gapScale).roundToInt()
+                    splitPoint(content, w, box, horizontal = true, minGap = gapY, minPiece = minPieceY, gutterFraction = gf)?.let { (a, b) ->
+                        cut(bx0, by0, bx1, a, depth + 1)
+                        cut(bx0, b, bx1, by1, depth + 1)
+                        return
                     }
-                    return
+                    splitPoint(content, w, box, horizontal = false, minGap = gapX, minPiece = minPieceX, gutterFraction = gf)?.let { (a, b) ->
+                        if (rtl) {
+                            cut(b, by0, bx1, by1, depth + 1)
+                            cut(bx0, by0, a, by1, depth + 1)
+                        } else {
+                            cut(bx0, by0, a, by1, depth + 1)
+                            cut(b, by0, bx1, by1, depth + 1)
+                        }
+                        return
+                    }
                 }
             }
             leaves.add(intArrayOf(bx0, by0, bx1, by1))
@@ -163,7 +185,7 @@ object PanelDetector {
     private data class Box(val x0: Int, val y0: Int, val x1: Int, val y1: Int)
 
     /** Riduce la regione al rettangolo che contiene il disegno; null se è vuota. */
-    private fun trim(content: BooleanArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int): Box? {
+    private fun trim(content: BooleanArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int, gutterFraction: Float): Box? {
         if (x1 - x0 < 4 || y1 - y0 < 4) return null
         var minX = x1; var maxX = x0 - 1; var minY = y1; var maxY = y0 - 1
         val rw = x1 - x0
@@ -171,8 +193,8 @@ object PanelDetector {
         val colCount = IntArray(rw)
         val rowCount = IntArray(rh)
         for (y in y0 until y1) for (x in x0 until x1) if (content[y * w + x]) { colCount[x - x0]++; rowCount[y - y0]++ }
-        val colMin = max(1, (rh * GUTTER_FRACTION).toInt())
-        val rowMin = max(1, (rw * GUTTER_FRACTION).toInt())
+        val colMin = max(1, (rh * gutterFraction).toInt())
+        val rowMin = max(1, (rw * gutterFraction).toInt())
         for (i in 0 until rw) if (colCount[i] >= colMin) { minX = x0 + i; break }
         for (i in rw - 1 downTo 0) if (colCount[i] >= colMin) { maxX = x0 + i; break }
         for (i in 0 until rh) if (rowCount[i] >= rowMin) { minY = y0 + i; break }
@@ -185,11 +207,11 @@ object PanelDetector {
      * Cerca la canalina vuota più larga che lasci pezzi abbastanza grandi.
      * Restituisce (fine del primo pezzo, inizio del secondo).
      */
-    private fun splitPoint(content: BooleanArray, w: Int, box: Box, horizontal: Boolean, minGap: Int, minPiece: Int): Pair<Int, Int>? {
+    private fun splitPoint(content: BooleanArray, w: Int, box: Box, horizontal: Boolean, minGap: Int, minPiece: Int, gutterFraction: Float): Pair<Int, Int>? {
         val (x0, y0, x1, y1) = box
         val length = if (horizontal) y1 - y0 else x1 - x0
         val across = if (horizontal) x1 - x0 else y1 - y0
-        val limit = max(1, (across * GUTTER_FRACTION).toInt())
+        val limit = max(1, (across * gutterFraction).toInt())
         val empty = BooleanArray(length)
         for (i in 0 until length) {
             var c = 0

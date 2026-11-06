@@ -64,6 +64,22 @@ class PanelDetectorTest {
     }
 
     @Test
+    fun lowContrastPanelsAreFoundByTheTolerantPass() {
+        val p = page()
+        fill(p, 14, 14, 144, 386, 222) // poco più scure dello sfondo
+        fill(p, 156, 14, 286, 386, 222)
+        assertEquals(2, PanelDetector.panels(p, w, h, rtl = false).size)
+    }
+
+    @Test
+    fun drawingOverlappingTheGutterDoesNotMergePanels() {
+        val p = grid()
+        fill(p, 138, 60, 162, 66, 110) // un fumetto o un braccio che attraversa la canalina verticale
+        val r = PanelDetector.panels(p, w, h, rtl = false)
+        assertEquals(4, r.size)
+    }
+
+    @Test
     fun darkBackgroundWorksToo() {
         val p = page(bg = 0)
         fill(p, 14, 14, 144, 386, 170)

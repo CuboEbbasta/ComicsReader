@@ -62,7 +62,7 @@ class ReaderViewModel(val comic: ComicFile) {
             if (v == _readingMode) return
             _readingMode = v
             ComicPrefs.set(v.raw, "readingMode", path)
-            focusRects = emptyMap()
+            focusRects = emptyMap(); bubblePages = emptySet()
             focusIndex = 0
             rebuildSpreads()
         }
@@ -81,12 +81,25 @@ class ReaderViewModel(val comic: ComicFile) {
     /** Il riquadro da inquadrare sulla pagina corrente, o null (pagina intera). */
     val currentFocus: NormRect?
         get() {
-            if (!isFocusMode) return null
+            if (!isFocusMode || currentPage in bubblePages) return null
             val list = focusRects[currentPage] ?: return null
             if (list.isEmpty()) return null
-            val pad = if (readingMode == ReadingMode.BUBBLE) 0.35f else 0.03f
-            return list[focusIndex.coerceIn(0, list.size - 1)].expanded(pad)
+            return list[focusIndex.coerceIn(0, list.size - 1)].expanded(0.03f)
         }
+
+    /** Pagine in cui i riquadri sono fumetti: la pagina resta intera e il fumetto compare ingrandito sopra. */
+    private var bubblePages by mutableStateOf<Set<Int>>(emptySet())
+
+    val currentBubble: NormRect?
+        get() {
+            if (!isFocusMode || currentPage !in bubblePages) return null
+            val list = focusRects[currentPage] ?: return null
+            if (list.isEmpty()) return null
+            return list[focusIndex.coerceIn(0, list.size - 1)].expanded(0.10f)
+        }
+
+    val bubbleProgress: String
+        get() = "${focusIndex + 1} / ${focusRects[currentPage]?.size ?: 0}"
 
     val hasFocusSteps: Boolean get() = isFocusMode && !focusRects[currentPage].isNullOrEmpty()
 
@@ -97,11 +110,12 @@ class ReaderViewModel(val comic: ComicFile) {
         val rtl = isRightToLeft
         scope.launch {
             val bmp = ld.load(page, PageLoader.Kind.FULL)
-            val rects = if (bmp == null) emptyList() else withContext(Dispatchers.Default) { FocusAnalysis.analyze(bmp, mode, rtl) }
+            val result = if (bmp == null) FocusAnalysis.Result(emptyList(), false) else withContext(Dispatchers.Default) { FocusAnalysis.analyze(bmp, mode, rtl) }
             analyzing.remove(page)
             if (mode != readingMode || rtl != isRightToLeft) return@launch
-            focusRects = focusRects + (page to rects)
-            if (page == currentPage) applyFocusStart(rects.size)
+            if (result.bubbles) bubblePages = bubblePages + page
+            focusRects = focusRects + (page to result.rects)
+            if (page == currentPage) applyFocusStart(result.rects.size)
         }
     }
 
@@ -181,7 +195,7 @@ class ReaderViewModel(val comic: ComicFile) {
             val manga = m.manga == true || m.languageISO?.lowercase()?.startsWith("ja") == true || path.lowercase().contains("manga")
             resolved = if (manga) ReadingDirection.RIGHT_TO_LEFT else ReadingDirection.LEFT_TO_RIGHT
         }
-        if (direction != resolved) focusRects = emptyMap()
+        if (direction != resolved) { focusRects = emptyMap(); bubblePages = emptySet() }
         direction = resolved
     }
 
