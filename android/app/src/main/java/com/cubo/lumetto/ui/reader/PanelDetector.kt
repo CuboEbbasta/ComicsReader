@@ -46,7 +46,14 @@ object PanelDetector {
         if (w < 16 || h < 16 || lum.size < w * h) return listOf(NormRect.FULL)
         val bg = borderMedian(lum, w, h)
         // Metodo principale: ciò che non si raggiunge "da fuori" attraversando solo sfondo è una vignetta.
-        floodPanels(lum, w, h, rtl, bg)?.let { return it }
+        // Lo sfondo si stima dal bordo, ma nelle pagine a tutta tavola il bordo è disegno: si provano anche nero e bianco
+        // (canaline tipiche) e vale il tentativo che trova più vignette plausibili. Provato su pagine vere.
+        var flooded: List<NormRect>? = null
+        for (candidate in listOf(bg, 0, 255).distinct()) {
+            val found = floodPanels(lum, w, h, rtl, candidate)
+            if (found != null && (flooded == null || found.size > flooded.size)) flooded = found
+        }
+        if (flooded != null) return flooded
         // Ripiego: tagli lungo le canaline vuote.
         var best = listOf(NormRect.FULL)
         for (pass in PASSES) {
@@ -104,31 +111,43 @@ object PanelDetector {
         return rects.ifEmpty { listOf(NormRect.FULL) }
     }
 
-    /** Fumetti con testo, ordinati per vignetta e poi dall'alto in basso (da destra a sinistra nei manga). */
+    /**
+     * Fumetti con testo, ordinati per vignetta e poi dall'alto in basso (da destra a sinistra nei manga).
+     * Sono zone chiare compatte con del testo scuro dentro. La "solidità" si misura per righe (da bordo a bordo della zona),
+     * così il testo sfumato in una pagina ridotta non fa sembrare la nuvoletta bucata. Provato su pagine vere.
+     */
     fun bubbles(lum: IntArray, w: Int, h: Int, rtl: Boolean, panels: List<NormRect> = emptyList()): List<NormRect> {
         if (w < 16 || h < 16 || lum.size < w * h) return emptyList()
-        val bright = BooleanArray(w * h) { lum[it] >= 200 }
-        val seen = BooleanArray(w * h)
-        val queue = IntArray(w * h)
-        val pageArea = w.toFloat() * h
+        val n = w * h
+        val bright = BooleanArray(n) { lum[it] >= 195 }
+        val seen = BooleanArray(n)
+        val queue = IntArray(n)
+        val rowMin = IntArray(h)
+        val rowMax = IntArray(h)
+        val rowOwner = IntArray(h) { -1 }
+        val pageArea = n.toFloat()
         val found = ArrayList<NormRect>()
-        for (start in 0 until w * h) {
+        var owner = 0
+        for (start in 0 until n) {
             if (!bright[start] || seen[start]) continue
+            owner++
             var head = 0
             var tail = 0
             queue[tail++] = start
             seen[start] = true
             var minX = w; var minY = h; var maxX = 0; var maxY = 0
-            var area = 0
             while (head < tail) {
                 val p = queue[head++]
                 val x = p % w
                 val y = p / w
-                area++
                 if (x < minX) minX = x
                 if (x > maxX) maxX = x
                 if (y < minY) minY = y
                 if (y > maxY) maxY = y
+                if (rowOwner[y] != owner) { rowOwner[y] = owner; rowMin[y] = x; rowMax[y] = x } else {
+                    if (x < rowMin[y]) rowMin[y] = x
+                    if (x > rowMax[y]) rowMax[y] = x
+                }
                 if (x > 0 && bright[p - 1] && !seen[p - 1]) { seen[p - 1] = true; queue[tail++] = p - 1 }
                 if (x < w - 1 && bright[p + 1] && !seen[p + 1]) { seen[p + 1] = true; queue[tail++] = p + 1 }
                 if (y > 0 && bright[p - w] && !seen[p - w]) { seen[p - w] = true; queue[tail++] = p - w }
@@ -137,22 +156,23 @@ object PanelDetector {
             val bw = maxX - minX + 1
             val bh = maxY - minY + 1
             val boxArea = bw.toFloat() * bh
-            if (boxArea < pageArea * 0.004f || boxArea > pageArea * 0.20f) continue
+            if (tail < pageArea * 0.002f || boxArea < pageArea * 0.004f || boxArea > pageArea * 0.20f) continue
             if (minX <= 1 || minY <= 1 || maxX >= w - 2 || maxY >= h - 2) continue // tocca il bordo: sfondo
-            val fill = area / boxArea
-            if (fill < 0.45f || fill > 0.95f) continue
+            var span = 0
+            for (y in minY..maxY) if (rowOwner[y] == owner) span += rowMax[y] - rowMin[y] + 1
+            if (span / boxArea < 0.55f) continue
             // Testo: pixel scuri nella parte interna del riquadro.
-            val ix0 = minX + (bw * 0.15f).toInt(); val ix1 = maxX - (bw * 0.15f).toInt()
-            val iy0 = minY + (bh * 0.15f).toInt(); val iy1 = maxY - (bh * 0.15f).toInt()
+            val ix0 = minX + (bw * 0.12f).toInt(); val ix1 = maxX - (bw * 0.12f).toInt()
+            val iy0 = minY + (bh * 0.12f).toInt(); val iy1 = maxY - (bh * 0.12f).toInt()
             var dark = 0
             var total = 0
             for (y in iy0..iy1) for (x in ix0..ix1) {
                 total++
-                if (lum[y * w + x] < 110) dark++
+                if (lum[y * w + x] < 150) dark++
             }
             if (total == 0) continue
             val ink = dark.toFloat() / total
-            if (ink < 0.03f || ink > 0.45f) continue
+            if (ink < 0.04f || ink > 0.5f) continue
             found.add(NormRect(minX / w.toFloat(), minY / h.toFloat(), (maxX + 1) / w.toFloat(), (maxY + 1) / h.toFloat()))
         }
         return sortReading(found, rtl, panels)
