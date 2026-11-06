@@ -52,20 +52,24 @@ class SyncProtocolTest {
     // --- §4: JSON come lo scrive l'iPad ---
 
     private val ipadJson = """
-    {"format":1,"deviceId":"6f1c2b9e-0000-4000-8000-000000000001","deviceName":"iPad","createdAt":1762171200000.123,
+    {"format":2,"deviceId":"6f1c2b9e-0000-4000-8000-000000000001","deviceName":"iPad","createdAt":1762171200000.123,
      "progress":{"Manga/One Piece/Vol 01.cbz":{"relativePath":"Manga/One Piece/Vol 01.cbz","currentPage":12,"totalPages":180,
         "totalReadingTime":1520.5,"sessionCount":3,"firstOpenedAt":1762000000000,"lastReadAt":1762100000000.5,"isCompleted":false,"modifiedAt":1762100000000.5}},
      "bookmarks":[{"id":"E621E1F8-C36C-495A-93FC-0C247A3E6E5F","relativePath":"Manga/One Piece/Vol 01.cbz","pageIndex":4,"createdAt":1762000000000}],
-     "sessions":[{"id":"A621E1F8-C36C-495A-93FC-0C247A3E6E5F","relativePath":"Manga/One Piece/Vol 01.cbz","title":"Vol 01","startedAt":1762000000000,"duration":600,"pagesRead":20}],
+     "sessions":[{"id":"A621E1F8-C36C-495A-93FC-0C247A3E6E5F","relativePath":"Manga/One Piece/Vol 01.cbz","title":"Vol 01","startedAt":1762000000000,"duration":600,"pagesRead":20,"deviceId":"6f1c2b9e-0000-4000-8000-000000000001"}],
      "highlights":[{"id":"B621E1F8-C36C-495A-93FC-0C247A3E6E5F","path":"Libri/a.epub","chapter":2,"start":100,"end":140,"text":"ciao","color":"green","createdAt":1762000000000}],
      "metadataEdits":{"Manga/x.cbz":{"metadata":{"title":"X","year":2001,"manga":true},"modifiedAt":1762000000000}},
      "hidden":{"Segreti":1762000000000},
-     "tombstones":{"progress":{},"bookmarks":{"D621E1F8-C36C-495A-93FC-0C247A3E6E5F":1762000000000},"sessions":{},"highlights":{},"metadata":{},"hidden":{}}}
+     "tombstones":{"progress":{},"bookmarks":{"D621E1F8-C36C-495A-93FC-0C247A3E6E5F":1762000000000},"sessions":{},"highlights":{},"metadata":{},"hidden":{}},
+     "devices":{"6f1c2b9e-0000-4000-8000-000000000001":{"name":"iPad","platform":"ios","lastSeen":1762171200000}}}
     """.trimIndent()
 
     @Test fun readsIpadPayloadAndRoundTrips() {
         val p = SyncPayload.fromJson(JSONObject(ipadJson))
-        assertEquals(1, p.format)
+        assertEquals(2, p.format)
+        assertEquals("6f1c2b9e-0000-4000-8000-000000000001", p.sessions[0].deviceId)
+        assertEquals("iPad", p.devices["6f1c2b9e-0000-4000-8000-000000000001"]!!.name)
+        assertEquals("ios", p.devices["6f1c2b9e-0000-4000-8000-000000000001"]!!.platform)
         val prog = p.progress["Manga/One Piece/Vol 01.cbz"]!!
         assertEquals(12, prog.currentPage)
         assertEquals(1520.5, prog.totalReadingTime, 0.0)
@@ -99,7 +103,8 @@ class SyncProtocolTest {
         val edits = HashMap<String, StampedMetadata>()
         val hidden = HashMap<String, Double>()
         var tomb = SyncTombstones()
-        fun build() = SyncPayload(1, id, id, 0.0, progress, bookmarks, sessions, highlights, edits, hidden, tomb)
+        val devices = HashMap<String, SyncDevice>()
+        fun build() = SyncPayload(2, id, id, 0.0, progress, bookmarks, sessions, highlights, edits, hidden, tomb, devices)
     }
 
     private val now = 1_800_000_000_000.0

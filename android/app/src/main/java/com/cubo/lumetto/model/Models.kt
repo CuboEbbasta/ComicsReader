@@ -292,6 +292,8 @@ data class ReadingSession(
     /** Secondi. */
     val duration: Double,
     val pagesRead: Int,
+    /** Dispositivo su cui si è letto (sync v2); assente nelle sessioni registrate prima. */
+    val deviceId: String? = null,
 )
 
 data class EpubHighlight(

@@ -52,7 +52,7 @@ import com.cubo.lumetto.ui.settings.FormValue
 
 /** Impostazioni → Sincronizzazione: stanza (nome + password), dispositivi trovati, "Sincronizza ora". */
 @Composable
-fun SyncSettingsScreen() {
+fun SyncSettingsScreen(onOpenPeer: (String) -> Unit = {}) {
     val sync = SyncManager
     var room by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -80,7 +80,7 @@ fun SyncSettingsScreen() {
                     }
                     else -> sync.peers.forEachIndexed { i, peer ->
                         if (i > 0) FormDivider()
-                        FormRow {
+                        FormRow(onClick = { onOpenPeer(peer.id) }) {
                             Icon(Icons.Filled.Devices, null, tint = LColors.accent)
                             Spacer(Modifier.width(10.dp))
                             Text(peer.name, color = LColors.textPrimary, modifier = Modifier.weight(1f))

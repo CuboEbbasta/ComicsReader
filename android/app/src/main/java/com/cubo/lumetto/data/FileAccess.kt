@@ -23,11 +23,20 @@ object FileAccess {
         private set
     var lastError by mutableStateOf<String?>(null)
 
+    /** true se l'app può scrivere nella cartella principale (serve per scaricare fumetti dagli altri dispositivi). */
+    var canWrite by mutableStateOf(false)
+        private set
+
+    private fun refreshWritable(uri: Uri?) {
+        canWrite = uri != null && AppContext.context.contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
+    }
+
     fun load() {
         val saved = AppContext.prefs.getString(KEY, null)?.let(Uri::parse) ?: return
         val stillGranted = AppContext.context.contentResolver.persistedUriPermissions.any { it.uri == saved && it.isReadPermission }
         if (stillGranted) {
             rootUri = saved
+            refreshWritable(saved)
         } else {
             lastError = "Non è stato possibile riaprire la cartella principale. Selezionala di nuovo."
         }
@@ -35,24 +44,32 @@ object FileAccess {
 
     fun setRoot(uri: Uri) {
         val resolver = AppContext.context.contentResolver
+        val readWrite = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         try {
-            resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Anche la scrittura, per poter scaricare fumetti dagli altri dispositivi; se non è concessa basta la lettura.
+            try {
+                resolver.takePersistableUriPermission(uri, readWrite)
+            } catch (e: SecurityException) {
+                resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
         } catch (e: SecurityException) {
             lastError = "Il sistema ha negato l'accesso alla cartella scelta."
             return
         }
         // Libera i permessi delle cartelle scelte in precedenza.
         resolver.persistedUriPermissions.filter { it.uri != uri }.forEach {
-            runCatching { resolver.releasePersistableUriPermission(it.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            runCatching { resolver.releasePersistableUriPermission(it.uri, readWrite) }
         }
         AppContext.prefs.edit().putString(KEY, uri.toString()).apply()
         lastError = null
         rootUri = uri
+        refreshWritable(uri)
     }
 
     fun clearRoot() {
         AppContext.prefs.edit().remove(KEY).apply()
         rootUri = null
+        canWrite = false
     }
 
     fun openFd(uri: Uri): ParcelFileDescriptor =
@@ -70,6 +87,58 @@ object FileAccess {
         } catch (e: Exception) {
             "Libreria"
         }
+    }
+}
+
+/** Scrittura nella cartella principale (SAF): crea le sottocartelle e il file allo stesso percorso relativo. */
+object SafWriter {
+    private class Child(val docId: String, val mime: String)
+
+    private fun findChild(tree: Uri, parentId: String, name: String): Child? {
+        val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
+        val cols = arrayOf(
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        )
+        AppContext.context.contentResolver.query(uri, cols, null, null, null)?.use { c ->
+            while (c.moveToNext()) if (c.getString(0) == name) return Child(c.getString(1), c.getString(2) ?: "")
+        }
+        return null
+    }
+
+    private fun mimeFor(name: String) = when (name.substringAfterLast('.', "").lowercase()) {
+        "pdf" -> "application/pdf"
+        "epub" -> "application/epub+zip"
+        else -> "application/octet-stream"
+    }
+
+    /** Copia [source] in [relativePath] dentro la cartella [tree], sostituendo un file con lo stesso nome. Poi cancella [source]. */
+    fun install(tree: Uri, relativePath: String, source: java.io.File) {
+        val resolver = AppContext.context.contentResolver
+        val parts = relativePath.split('/')
+        var parentId = DocumentsContract.getTreeDocumentId(tree)
+        for (dir in parts.dropLast(1)) {
+            val existing = findChild(tree, parentId, dir)
+            parentId = if (existing != null && existing.mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                existing.docId
+            } else {
+                val created = DocumentsContract.createDocument(
+                    resolver, DocumentsContract.buildDocumentUriUsingTree(tree, parentId), DocumentsContract.Document.MIME_TYPE_DIR, dir,
+                ) ?: throw java.io.IOException("Impossibile creare la cartella «$dir».")
+                DocumentsContract.getDocumentId(created)
+            }
+        }
+        val name = parts.last()
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(tree, parentId)
+        findChild(tree, parentId, name)?.let {
+            DocumentsContract.deleteDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, it.docId))
+        }
+        val target = DocumentsContract.createDocument(resolver, parentUri, mimeFor(name), name)
+            ?: throw java.io.IOException("Impossibile creare il file «$name».")
+        (resolver.openOutputStream(target, "w") ?: throw java.io.IOException("Impossibile scrivere il file.")).use { out ->
+            source.inputStream().use { it.copyTo(out, 1 shl 20) }
+        }
+        source.delete()
     }
 }
 

@@ -89,8 +89,11 @@ data class StampedMetadata(val metadata: ComicMetadata, val modifiedAt: Double)
  * Tutto ciò che si sincronizza (§4). Le chiavi sono i percorsi relativi alla cartella dei fumetti.
  * Non si sincronizzano: impostazioni, PIN, sfondo, cartella scelta e i fumetti stessi.
  */
+/** Un dispositivo conosciuto della stanza (per dare un nome alle statistiche di ciascuno). */
+data class SyncDevice(val name: String, val platform: String, val lastSeen: Double)
+
 data class SyncPayload(
-    val format: Int = 1,
+    val format: Int = 2,
     val deviceId: String,
     val deviceName: String,
     val createdAt: Double,
@@ -101,12 +104,14 @@ data class SyncPayload(
     val metadataEdits: Map<String, StampedMetadata>,
     val hidden: Map<String, Double>,
     val tombstones: SyncTombstones,
+    /** Dispositivi della stanza: id → nome, piattaforma, ultima volta visto (v2). */
+    val devices: Map<String, SyncDevice> = emptyMap(),
 ) {
     /** Il contenuto senza il mittente: serve a capire se l'unione ha cambiato qualcosa. */
     fun sameContent(o: SyncPayload): Boolean =
         progress == o.progress && bookmarks == o.bookmarks && sessions == o.sessions &&
             highlights == o.highlights && metadataEdits == o.metadataEdits && hidden == o.hidden &&
-            tombstones.sameContent(o.tombstones)
+            tombstones.sameContent(o.tombstones) && devices == o.devices
 
     /**
      * Unisce i dati di un altro dispositivo con questi (§5). Il risultato è lo stesso da qualunque
@@ -177,7 +182,15 @@ data class SyncPayload(
             hidden[k] = v
         }
 
-        return SyncPayload(1, deviceId, deviceName, now, progress, bookmarks, sessions, highlights, metadataEdits, hidden, tomb)
+        // Dispositivi: per ognuno vale la scheda vista più di recente (a parità, il nome maggiore).
+        val devices = LinkedHashMap(this.devices)
+        for ((id, d) in other.devices) {
+            val existing = devices[id]
+            if (existing != null && (existing.lastSeen > d.lastSeen || (existing.lastSeen == d.lastSeen && existing.name >= d.name))) continue
+            devices[id] = d
+        }
+
+        return SyncPayload(2, deviceId, deviceName, now, progress, bookmarks, sessions, highlights, metadataEdits, hidden, tomb, devices)
     }
 
     fun toJson(): JSONObject {
@@ -195,6 +208,9 @@ data class SyncPayload(
         o.put("metadataEdits", edits)
         o.put("hidden", Codec.stampMapToJson(hidden))
         o.put("tombstones", tombstones.toJson())
+        val dev = JSONObject()
+        for ((id, d) in devices) dev.put(id, JSONObject().put("name", d.name).put("platform", d.platform).put("lastSeen", d.lastSeen))
+        o.put("devices", dev)
         return o
     }
 
@@ -211,7 +227,17 @@ data class SyncPayload(
                     edits[k] = StampedMetadata(Codec.metadataFromJson(entry.optJSONObject("metadata")), entry.optDoubleOrNull("modifiedAt") ?: 0.0)
                 }
             }
+            val devices = HashMap<String, SyncDevice>()
+            o.optJSONObject("devices")?.let { d ->
+                val keys = d.keys()
+                while (keys.hasNext()) {
+                    val id = keys.next()
+                    val entry = d.optJSONObject(id) ?: continue
+                    devices[id] = SyncDevice(entry.optString("name", "Dispositivo"), entry.optString("platform", ""), entry.optDoubleOrNull("lastSeen") ?: 0.0)
+                }
+            }
             return SyncPayload(
+                devices = devices,
                 format = o.optInt("format", 0),
                 deviceId = o.optString("deviceId"),
                 deviceName = o.optString("deviceName"),

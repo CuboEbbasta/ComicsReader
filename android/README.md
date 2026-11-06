@@ -24,7 +24,7 @@ La chiave è solo per uso personale: per pubblicare su Google Play ne servirà u
 - **Cartella dei fumetti** scelta con il selettore di sistema: i file non vengono mai copiati né spostati.
 - **Formati**: CBZ, CBR (RAR 4 anche compressi; RAR 5 se salvati senza compressione), PDF, EPUB a layout fisso e a testo scorrevole (con evidenziazioni).
 - **Lettore**: scorrimento, "Sfoglia", verticale (webtoon); una o due pagine; direzione automatica/manga; zoom con pizzico e doppio tocco; miniature; segnalibri; sfondo per fumetto; tempo di lettura e statistiche.
-- **Sincronizzazione**: stessa stanza (nome + password) sull'iPad e su Android, stessa rete Wi-Fi. Si sincronizzano progressi, completati, segnalibri, sessioni, evidenziazioni, metadati modificati e nascosti.
+- **Sincronizzazione v2**: stessa stanza (nome + password) sull'iPad e su Android, stessa rete Wi-Fi. Dalla scheda di un dispositivo si vedono le sue statistiche e la sua libreria a confronto con la tua (✓ uguale, ↓ manca, ! diversa) e si scaricano i fumetti mancanti, nella stessa sottocartella. Si sincronizzano progressi, completati, segnalibri, sessioni, evidenziazioni, metadati modificati e nascosti.
 
 ## Compilare
 

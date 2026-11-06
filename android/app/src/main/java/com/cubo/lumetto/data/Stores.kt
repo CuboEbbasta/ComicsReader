@@ -146,7 +146,7 @@ object ProgressStore {
         if (durationSec < 5) return
         progress[path]?.let { put(it.copy(totalReadingTime = it.totalReadingTime + durationSec, modifiedAt = nowMs())) }
         val list = ArrayList<ReadingSession>(sessions.size + 1)
-        list.add(ReadingSession(newUuid(), path, title, startedAt, durationSec, pagesRead))
+        list.add(ReadingSession(newUuid(), path, title, startedAt, durationSec, pagesRead, com.cubo.lumetto.sync.SyncManager.deviceId))
         list.addAll(sessions)
         sessions = if (list.size > 2000) list.subList(0, 2000).toList() else list
         scheduleSave()

@@ -161,12 +161,19 @@ fun FormLink(label: String, detail: String? = null, onClick: () -> Unit) {
 
 // ---------------------------------------------------------------------------------------------
 
-private enum class SettingsPage { MAIN, SYNC, STATS, AI }
+private enum class SettingsPage { MAIN, SYNC, STATS, AI, PEER }
 
 @Composable
 fun SettingsScreen(activity: MainActivity, onClose: () -> Unit) {
     var page by remember { mutableStateOf(SettingsPage.MAIN) }
-    BackHandler { if (page == SettingsPage.MAIN) onClose() else page = SettingsPage.MAIN }
+    var peerId by remember { mutableStateOf("") }
+    BackHandler {
+        when (page) {
+            SettingsPage.MAIN -> onClose()
+            SettingsPage.PEER -> page = SettingsPage.SYNC
+            else -> page = SettingsPage.MAIN
+        }
+    }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
         when (page) {
             SettingsPage.MAIN -> {
@@ -179,7 +186,11 @@ fun SettingsScreen(activity: MainActivity, onClose: () -> Unit) {
             }
             SettingsPage.SYNC -> {
                 SheetTopBar("Sincronizzazione", leading = "Indietro", onLeading = { page = SettingsPage.MAIN })
-                SyncSettingsScreen()
+                SyncSettingsScreen(onOpenPeer = { peerId = it; page = SettingsPage.PEER })
+            }
+            SettingsPage.PEER -> {
+                SheetTopBar(com.cubo.lumetto.sync.SyncManager.displayName(peerId), leading = "Indietro", onLeading = { page = SettingsPage.SYNC })
+                com.cubo.lumetto.sync.PeerScreen(peerId)
             }
             SettingsPage.STATS -> {
                 SheetTopBar("Statistiche", leading = "Indietro", onLeading = { page = SettingsPage.MAIN })
@@ -411,22 +422,52 @@ fun authenticate(activity: MainActivity, done: (Boolean) -> Unit) {
 @Composable
 private fun StatsScreen() {
     val store = ProgressStore
+    val allDevices = "*"
+    var deviceFilter by remember { mutableStateOf<String?>(allDevices) }
+    val sync = com.cubo.lumetto.sync.SyncManager
+    // Dispositivi con sessioni o noti nella stanza; null = sessioni di prima della sincronizzazione.
+    val deviceOptions: List<String?> = remember(store.sessions, sync.knownDevices) {
+        val ids = LinkedHashSet<String?>()
+        ids.add(sync.deviceId)
+        store.sessions.forEach { ids.add(it.deviceId) }
+        sync.knownDevices.keys.forEach { ids.add(it) }
+        listOf<String?>(allDevices) + ids
+    }
+    val sessions = if (deviceFilter == allDevices) store.sessions else store.sessions.filter { it.deviceId == deviceFilter }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp)) {
+        if (deviceOptions.size > 2) {
+            FormSection("Dispositivo") {
+                FormPicker(
+                    "Mostra", deviceFilter, deviceOptions,
+                    { if (it == allDevices) "Tutti i dispositivi" else sync.displayName(it) },
+                ) { deviceFilter = it }
+            }
+        }
         FormSection("Riepilogo") {
-            FormValue("Fumetti finiti", "${store.completedCount}")
-            FormDivider()
-            FormValue("Tempo di lettura", readingDuration(store.totalReadingTime))
-            FormDivider()
-            FormValue("Pagine lette", "${store.totalPagesRead}")
-            FormDivider()
-            FormValue("Sessioni", "${store.sessions.size}")
+            if (deviceFilter == allDevices) {
+                FormValue("Fumetti finiti", "${store.completedCount}")
+                FormDivider()
+                FormValue("Tempo di lettura", readingDuration(store.totalReadingTime))
+                FormDivider()
+                FormValue("Pagine lette", "${store.totalPagesRead}")
+                FormDivider()
+                FormValue("Sessioni", "${store.sessions.size}")
+            } else {
+                FormValue("Fumetti letti", "${sessions.map { it.relativePath }.toSet().size}")
+                FormDivider()
+                FormValue("Tempo di lettura", readingDuration(sessions.sumOf { it.duration }))
+                FormDivider()
+                FormValue("Pagine lette", "${sessions.sumOf { it.pagesRead }}")
+                FormDivider()
+                FormValue("Sessioni", "${sessions.size}")
+            }
         }
         FormSection("Ultime sessioni") {
-            if (store.sessions.isEmpty()) {
+            if (sessions.isEmpty()) {
                 FormRow { Text("Nessuna sessione registrata.", color = LColors.textSecondary) }
             }
             val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT, java.util.Locale.ITALIAN)
-            store.sessions.take(30).forEachIndexed { i, s ->
+            sessions.take(30).forEachIndexed { i, s ->
                 if (i > 0) FormDivider()
                 FormRow {
                     Column {

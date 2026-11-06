@@ -84,6 +84,7 @@ object LibraryStore {
 
     private var fullRoot: ComicFolder? = null
     private var index: Map<String, ComicFile> = emptyMap()
+    private var fullIndex: Map<String, ComicFile> = emptyMap()
     private var metadataJob: Job? = null
     private var lastHiddenKey: String? = null
 
@@ -110,6 +111,7 @@ object LibraryStore {
         fullRoot = null
         root = null
         index = emptyMap()
+        fullIndex = emptyMap()
     }
 
     /** Da chiamare quando cambiano gli elementi nascosti o lo stato di Incognito. */
@@ -121,6 +123,7 @@ object LibraryStore {
 
     private fun rebuildVisible() {
         val full = fullRoot ?: run { root = null; return }
+        fullIndex = full.allComicsRecursive().associateBy { it.relativePath }
         val hidden = IncognitoStore.hiddenPaths
         lastHiddenKey = "${IncognitoStore.isActive}|${hidden.sorted().joinToString("\u0000")}"
         val visible = if (IncognitoStore.isActive || hidden.isEmpty()) full else (full.pruned(hidden) ?: full)
@@ -130,6 +133,11 @@ object LibraryStore {
     }
 
     fun comic(path: String): ComicFile? = index[path]
+
+    /** Tutti i fumetti, anche quelli nascosti in Incognito (per la sincronizzazione tra dispositivi). */
+    fun allComicsIncludingHidden(): Collection<ComicFile> = fullIndex.values
+
+    fun comicIncludingHidden(path: String): ComicFile? = fullIndex[path]
 
     /** Il fumetto che segue nella stessa cartella. */
     fun nextComic(after: ComicFile): ComicFile? {

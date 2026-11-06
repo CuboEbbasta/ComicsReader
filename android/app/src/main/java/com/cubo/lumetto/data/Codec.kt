@@ -108,12 +108,14 @@ object Codec {
     fun sessionToJson(s: ReadingSession): JSONObject = JSONObject()
         .put("id", s.id).put("relativePath", s.relativePath).put("title", s.title)
         .put("startedAt", s.startedAt).put("duration", s.duration).put("pagesRead", s.pagesRead)
+        .also { o -> s.deviceId?.let { o.put("deviceId", it) } }
 
     fun sessionFromJson(o: JSONObject): ReadingSession? {
         val id = o.optStringOrNull("id") ?: return null
         return ReadingSession(
             id, o.optString("relativePath"), o.optString("title"),
             o.optDoubleOrNull("startedAt") ?: 0.0, o.optDoubleOrNull("duration") ?: 0.0, o.optIntOrNull("pagesRead") ?: 0,
+            o.optStringOrNull("deviceId"),
         )
     }
 
