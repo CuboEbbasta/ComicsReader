@@ -54,3 +54,6 @@ Dal PC: vedi `../tools/lumetto-bridge/` (ponte stdio per Claude Desktop, Claude 
    - Claude Code: `claude mcp add --transport http lumetto http://IP:8765/mcp --header "Authorization: Bearer lum_..."`
    - Claude Desktop e altri client stdio: usa il ponte in `tools/lumetto-bridge/` (vedi il suo README).
 4. **Modifiche**: con «Consenti modifiche» spento, uno strumento di scrittura (es. `set_progress`) deve rispondere «Modifiche disattivate»; acceso, la modifica compare nell'app e nell'elenco «Ultime richieste».
+
+## Aprire un fumetto da fuori (deep link)
+`lumetto://apri?titolo=spiderman` cerca per titolo e apre il lettore; `lumetto://apri?percorso=Manga%2FVol%2001.cbz` apre il percorso esatto; `lumetto://apri?ultimo=1` l'ultimo fumetto letto. Funziona da un collegamento sulla home, da automazioni (Tasker, Routine) o da un'altra app. Tenendo premuta l'icona di Lumetto compaiono gli ultimi fumetti letti.

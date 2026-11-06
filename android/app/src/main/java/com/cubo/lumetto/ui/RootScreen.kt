@@ -42,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cubo.lumetto.MainActivity
 import com.cubo.lumetto.data.AppRouter
+import com.cubo.lumetto.data.DeepLinks
+import com.cubo.lumetto.data.ProgressStore
+import com.cubo.lumetto.data.Shortcuts
 import com.cubo.lumetto.data.FileAccess
 import com.cubo.lumetto.data.IncognitoStore
 import com.cubo.lumetto.data.LibraryNavigator
@@ -68,6 +71,22 @@ private fun LibraryHost(activity: MainActivity) {
     }
     LaunchedEffect(LibraryStore.root) { LibraryNavigator.attach(LibraryStore.root) }
     LaunchedEffect(IncognitoStore.isActive, IncognitoStore.hidden) { LibraryStore.incognitoChanged() }
+
+    // Apertura da fuori (lumetto://apri?...): aspetta che la libreria sia caricata, poi apre il fumetto richiesto.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(DeepLinks.pending, LibraryStore.version) {
+        val request = DeepLinks.pending ?: return@LaunchedEffect
+        if (LibraryStore.root == null) return@LaunchedEffect
+        DeepLinks.pending = null
+        val comic = DeepLinks.resolve(request)
+        if (comic != null) AppRouter.open(comic)
+        else android.widget.Toast.makeText(context, "Fumetto non trovato nella libreria", android.widget.Toast.LENGTH_LONG).show()
+    }
+    // Scorciatoie dell'icona: gli ultimi fumetti letti (non mentre Incognito è sbloccato).
+    LaunchedEffect(ProgressStore.progress, LibraryStore.version) {
+        kotlinx.coroutines.delay(2000)
+        if (!IncognitoStore.isActive && LibraryStore.root != null) Shortcuts.update(context)
+    }
 
     val reading = AppRouter.openedComic
     val overlayOpen = reading != null || AppRouter.showSearch || AppRouter.showSettings || AppRouter.editingComic != null
