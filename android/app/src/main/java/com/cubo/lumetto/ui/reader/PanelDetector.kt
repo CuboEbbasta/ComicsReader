@@ -45,6 +45,9 @@ object PanelDetector {
     fun panels(lum: IntArray, w: Int, h: Int, rtl: Boolean): List<NormRect> {
         if (w < 16 || h < 16 || lum.size < w * h) return listOf(NormRect.FULL)
         val bg = borderMedian(lum, w, h)
+        // Metodo principale: ciò che non si raggiunge "da fuori" attraversando solo sfondo è una vignetta.
+        floodPanels(lum, w, h, rtl, bg)?.let { return it }
+        // Ripiego: tagli lungo le canaline vuote.
         var best = listOf(NormRect.FULL)
         for (pass in PASSES) {
             val found = detect(lum, w, h, rtl, bg, pass)
@@ -54,7 +57,7 @@ object PanelDetector {
         return best
     }
 
-    private fun detect(lum: IntArray, w: Int, h: Int, rtl: Boolean, bg: Int, pass: Pass): List<NormRect> {
+    private fun detect(lum: IntArray, w: Int, h: Int, rtl: Boolean, bg: Int, pass: Pass, region: IntArray? = null): List<NormRect> {
         val gutterFraction = pass.gutter
         val content = BooleanArray(w * h) { abs(lum[it] - bg) > pass.delta }
         val minGapX = max(2, (w * pass.minGap).roundToInt())
@@ -92,7 +95,7 @@ object PanelDetector {
             }
             leaves.add(intArrayOf(bx0, by0, bx1, by1))
         }
-        cut(0, 0, w, h, 0)
+        if (region == null) cut(0, 0, w, h, 0) else cut(region[0], region[1], region[2], region[3], 0)
 
         val pageArea = w.toFloat() * h
         val rects = leaves
@@ -170,6 +173,129 @@ object PanelDetector {
                 else -> a.centerX.compareTo(b.centerX)
             }
         }
+    }
+
+    /**
+     * Le vignette hanno un bordo che le chiude; le canaline e i margini sono sfondo collegato al bordo della pagina.
+     * Si riempie lo sfondo partendo dai bordi (dopo aver ingrossato il disegno per chiudere piccoli varchi):
+     * le zone non raggiunte sono le vignette, anche con l'interno bianco. Null se il risultato non è plausibile.
+     */
+    private fun floodPanels(lum: IntArray, w: Int, h: Int, rtl: Boolean, bg: Int): List<NormRect>? {
+        val n = w * h
+        val r = max(1, (min(w, h) * 0.004f).roundToInt())
+        val solid = dilate(BooleanArray(n) { abs(lum[it] - bg) > 40 }, w, h, r)
+        val outside = BooleanArray(n)
+        val queue = IntArray(n)
+        var tail = 0
+        for (x in 0 until w) for (p in intArrayOf(x, (h - 1) * w + x)) if (!solid[p] && !outside[p]) { outside[p] = true; queue[tail++] = p }
+        for (y in 0 until h) for (p in intArrayOf(y * w, y * w + w - 1)) if (!solid[p] && !outside[p]) { outside[p] = true; queue[tail++] = p }
+        var head = 0
+        while (head < tail) {
+            val p = queue[head++]
+            val x = p % w
+            val y = p / w
+            if (x > 0 && !solid[p - 1] && !outside[p - 1]) { outside[p - 1] = true; queue[tail++] = p - 1 }
+            if (x < w - 1 && !solid[p + 1] && !outside[p + 1]) { outside[p + 1] = true; queue[tail++] = p + 1 }
+            if (y > 0 && !solid[p - w] && !outside[p - w]) { outside[p - w] = true; queue[tail++] = p - w }
+            if (y < h - 1 && !solid[p + w] && !outside[p + w]) { outside[p + w] = true; queue[tail++] = p + w }
+        }
+
+        // Componenti delle zone non raggiunte (8 vicini).
+        val seen = BooleanArray(n)
+        val boxes = ArrayList<NormRect>()
+        for (start in 0 until n) {
+            if (outside[start] || seen[start]) continue
+            head = 0
+            tail = 0
+            queue[tail++] = start
+            seen[start] = true
+            var minX = w; var minY = h; var maxX = 0; var maxY = 0
+            while (head < tail) {
+                val p = queue[head++]
+                val x = p % w
+                val y = p / w
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+                for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = x + dx
+                    val ny = y + dy
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+                    val q = ny * w + nx
+                    if (!outside[q] && !seen[q]) { seen[q] = true; queue[tail++] = q }
+                }
+            }
+            // Il disegno era stato ingrossato di r: si torna alle misure vere.
+            val x0 = min(maxX, minX + r)
+            val y0 = min(maxY, minY + r)
+            val x1 = max(x0 + 1, maxX + 1 - r)
+            val y1 = max(y0 + 1, maxY + 1 - r)
+            val boxArea = (x1 - x0).toFloat() * (y1 - y0)
+            if (tail < n * 0.012f || boxArea < n * 0.025f) continue
+            boxes.add(NormRect(x0 / w.toFloat(), y0 / h.toFloat(), x1 / w.toFloat(), y1 / h.toFloat()))
+        }
+        if (boxes.size !in 2..MAX_PANELS) return null
+        if (boxes.any { it.area > 0.85f }) return null
+        // Una "vignetta" molto grande può essere due vignette unite da un disegno che attraversa la canalina: si prova a tagliarla.
+        val refined = ArrayList<NormRect>()
+        for (b in boxes) {
+            if (b.area <= 0.28f) { refined.add(b); continue }
+            val region = intArrayOf((b.left * w).toInt(), (b.top * h).toInt(), (b.right * w).toInt(), (b.bottom * h).toInt())
+            val parts = detect(lum, w, h, rtl, bg, PASSES[0], region)
+            if (parts.size >= 2 && parts.all { it.area >= 0.06f }) refined.addAll(parts) else refined.add(b)
+        }
+        if (refined.size > MAX_PANELS) return null
+        return orderBoxes(refined, rtl)
+    }
+
+    /** Ingrossa di [r] pixel (finestra quadrata, due passate). */
+    private fun dilate(src: BooleanArray, w: Int, h: Int, r: Int): BooleanArray {
+        val horiz = BooleanArray(src.size)
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val lo = max(0, x - r)
+                val hi = min(w - 1, x + r)
+                var on = false
+                for (xx in lo..hi) if (src[y * w + xx]) { on = true; break }
+                horiz[y * w + x] = on
+            }
+        }
+        val out = BooleanArray(src.size)
+        for (x in 0 until w) for (y in 0 until h) {
+            val lo = max(0, y - r)
+            val hi = min(h - 1, y + r)
+            var on = false
+            for (yy in lo..hi) if (horiz[yy * w + x]) { on = true; break }
+            out[y * w + x] = on
+        }
+        return out
+    }
+
+    /** Ordine di lettura di riquadri qualsiasi: tagli ricorsivi orizzontali e poi verticali, come nei fumetti veri. */
+    internal fun orderBoxes(items: List<NormRect>, rtl: Boolean): List<NormRect> {
+        if (items.size <= 1) return items
+        val tolerance = 0.012f
+        val byTop = items.sortedBy { it.top }
+        var maxBottom = byTop[0].bottom
+        for (i in 1 until byTop.size) {
+            if (byTop[i].top >= maxBottom - tolerance) {
+                return orderBoxes(byTop.subList(0, i), rtl) + orderBoxes(byTop.subList(i, byTop.size), rtl)
+            }
+            maxBottom = max(maxBottom, byTop[i].bottom)
+        }
+        val byLeft = items.sortedBy { it.left }
+        var maxRight = byLeft[0].right
+        for (i in 1 until byLeft.size) {
+            if (byLeft[i].left >= maxRight - tolerance) {
+                val a = orderBoxes(byLeft.subList(0, i), rtl)
+                val b = orderBoxes(byLeft.subList(i, byLeft.size), rtl)
+                return if (rtl) b + a else a + b
+            }
+            maxRight = max(maxRight, byLeft[i].right)
+        }
+        return items.sortedWith(compareBy({ it.top }, { if (rtl) -it.left else it.left }))
     }
 
     private fun borderMedian(lum: IntArray, w: Int, h: Int): Int {

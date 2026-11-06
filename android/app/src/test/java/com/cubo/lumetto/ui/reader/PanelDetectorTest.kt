@@ -126,3 +126,65 @@ class PanelDetectorTest {
         assertTrue(r.bottom <= 1f)
     }
 }
+
+/** Pagine "vere": vignette con bordo nero e interno quasi tutto bianco, come nei manga. */
+class BorderedPanelsTest {
+    private val w = 300
+    private val h = 420
+
+    private fun page() = IntArray(w * h) { 255 }
+
+    private fun framed(img: IntArray, x0: Int, y0: Int, x1: Int, y1: Int) {
+        for (y in y0 until y1) for (x in x0 until x1) {
+            val edge = x < x0 + 3 || x >= x1 - 3 || y < y0 + 3 || y >= y1 - 3
+            img[y * w + x] = if (edge) 0 else 255
+        }
+        // qualche tratto dentro, per non essere del tutto vuota
+        for (i in 0 until (x1 - x0) / 3) img[(y0 + (y1 - y0) / 2) * w + x0 + 10 + i] = 0
+    }
+
+    @Test
+    fun whiteInteriorGridIsFourPanels() {
+        val p = page()
+        framed(p, 14, 14, 144, 204)
+        framed(p, 156, 14, 286, 204)
+        framed(p, 14, 216, 144, 406)
+        framed(p, 156, 216, 286, 406)
+        val r = PanelDetector.panels(p, w, h, rtl = false)
+        assertEquals(4, r.size)
+        assertTrue(r[0].centerX < 0.5f && r[0].centerY < 0.5f)
+        assertTrue(r[3].centerX > 0.5f && r[3].centerY > 0.5f)
+    }
+
+    @Test
+    fun mangaOrderWithTallPanelOnTheLeft() {
+        val p = page()
+        framed(p, 14, 14, 144, 406)      // alta, a sinistra
+        framed(p, 156, 14, 286, 204)     // in alto a destra
+        framed(p, 156, 216, 286, 406)    // in basso a destra
+        val r = PanelDetector.panels(p, w, h, rtl = true)
+        assertEquals(3, r.size)
+        // destra-alto, destra-basso, poi la sinistra
+        assertTrue(r[0].centerX > 0.5f && r[0].centerY < 0.5f)
+        assertTrue(r[1].centerX > 0.5f && r[1].centerY > 0.5f)
+        assertTrue(r[2].centerX < 0.5f)
+    }
+
+    @Test
+    fun tinyGapInBorderStillCounts() {
+        val p = page()
+        framed(p, 14, 14, 286, 200)
+        framed(p, 14, 212, 286, 406)
+        for (y in 14 until 17) p[y * w + 100] = 255 // piccolo varco nel bordo
+        assertEquals(2, PanelDetector.panels(p, w, h, rtl = false).size)
+    }
+
+    @Test
+    fun orderBoxesPutsRowsTopToBottom() {
+        val a = NormRect(0f, 0f, 0.5f, 0.5f)
+        val b = NormRect(0.5f, 0f, 1f, 0.5f)
+        val c = NormRect(0f, 0.5f, 1f, 1f)
+        assertEquals(listOf(a, b, c), PanelDetector.orderBoxes(listOf(c, b, a), rtl = false))
+        assertEquals(listOf(b, a, c), PanelDetector.orderBoxes(listOf(c, b, a), rtl = true))
+    }
+}
