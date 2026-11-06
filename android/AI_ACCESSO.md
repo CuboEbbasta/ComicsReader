@@ -39,3 +39,5 @@ Le pagine si contano da 0. I percorsi sono relativi alla cartella principale (co
 - Le ultime richieste sono visibili nella schermata.
 
 Codice: `app/src/main/java/com/cubo/lumetto/ai/`. Test: `app/src/test/.../ai/AiAccessTest.kt`.
+
+Dal PC: vedi `../tools/lumetto-bridge/` (ponte stdio per Claude Desktop, Claude Code e altri client MCP).
