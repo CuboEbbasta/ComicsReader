@@ -1,6 +1,8 @@
 package com.cubo.lumetto.sync
 
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -66,6 +68,13 @@ fun PeerScreen(peerId: String) {
     var filter by remember { mutableStateOf(LibraryFilter.ALL) }
     var query by remember { mutableStateOf("") }
     var confirmReplace by remember { mutableStateOf<LibraryRow?>(null) }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            LibraryStore.reset()
+            FileAccess.setRoot(uri)
+            LibraryStore.refresh()
+        }
+    }
 
     LaunchedEffect(peerId, peer != null) {
         if (peer != null && sync.remoteLibraries[peerId] == null) sync.loadLibrary(peerId)
@@ -129,12 +138,15 @@ fun PeerScreen(peerId: String) {
                         FormButton("Aggiorna l'elenco", enabled = peer != null) { sync.loadLibrary(peerId) }
                         if (missing.isNotEmpty()) {
                             FormDivider()
-                            FormButton("Scarica tutti quelli che mancano (${missing.size})", enabled = peer != null && FileAccess.canWrite) {
+                            FormButton("Scarica tutti quelli che mancano (${missing.size})", enabled = peer != null) {
                                 sync.download(missing.mapNotNull { it.remote }, peerId)
                             }
                         }
                         if (!FileAccess.canWrite) {
-                            FormRow { Text("Per scaricare serve il permesso di scrittura: in Impostazioni → Cartella dei fumetti, scegli di nuovo la cartella.", color = LColors.textTertiary, fontSize = 12.sp) }
+                            FormDivider()
+                            FormRow { Text("Per scaricare Lumetto deve poter scrivere nella cartella dei fumetti: scegline di nuovo la stessa e concedi l'accesso.", color = LColors.textSecondary, fontSize = 13.sp) }
+                            FormDivider()
+                            FormButton("Scegli di nuovo la cartella dei fumetti") { folderPicker.launch(null) }
                         }
                     }
                 }
@@ -180,15 +192,15 @@ fun PeerScreen(peerId: String) {
                         row.status == LibraryStatus.SAME -> Icon(Icons.Filled.CheckCircle, "Uguale", tint = LColors.accent, modifier = Modifier.size(22.dp))
                         row.status == LibraryStatus.ONLY_HERE -> Text("Solo qui", color = LColors.textTertiary, fontSize = 13.sp)
                         row.status == LibraryStatus.MISSING_HERE -> Icon(
-                            Icons.Filled.Download, "Scarica", tint = if (peer != null && FileAccess.canWrite) LColors.accent else LColors.textTertiary,
-                            modifier = Modifier.size(26.dp).clickable(enabled = peer != null && FileAccess.canWrite) { row.remote?.let { sync.download(listOf(it), peerId) } },
+                            Icons.Filled.Download, "Scarica", tint = if (peer != null) LColors.accent else LColors.textTertiary,
+                            modifier = Modifier.size(26.dp).clickable(enabled = peer != null) { row.remote?.let { sync.download(listOf(it), peerId) } },
                         )
                         row.status == LibraryStatus.DIFFERENT -> Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.Warning, "Versione diversa", tint = LColors.gold, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(6.dp))
                             Icon(
-                                Icons.Filled.Download, "Sostituisci", tint = if (peer != null && FileAccess.canWrite) LColors.accent else LColors.textTertiary,
-                                modifier = Modifier.size(26.dp).clickable(enabled = peer != null && FileAccess.canWrite) { confirmReplace = row },
+                                Icons.Filled.Download, "Sostituisci", tint = if (peer != null) LColors.accent else LColors.textTertiary,
+                                modifier = Modifier.size(26.dp).clickable(enabled = peer != null) { confirmReplace = row },
                             )
                         }
                     }
