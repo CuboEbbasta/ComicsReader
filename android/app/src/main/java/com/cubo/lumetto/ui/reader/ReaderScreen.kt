@@ -81,6 +81,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -270,20 +271,25 @@ private fun PagedReaderContent(vm: ReaderViewModel, loader: PageLoader, rtl: Boo
                 .fillMaxSize()
                 .background(Color(vm.theme.hex))
                 .then(
-                    if (curl) Modifier.graphicsLayer {
-                        // "Sfoglia": la pagina che entra ruota sul dorso e si chiude sopra quella ferma.
-                        val d = (index - pager.currentPage) - pager.currentPageOffsetFraction
-                        val dir = if (rtl) -1f else 1f
-                        if (d > -1f && d < 1f) {
-                            translationX = -d * size.width * dir
-                            if (d > 0f) {
-                                transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0.5f)
-                                rotationY = -90f * d * dir
-                                cameraDistance = 18f * density
+                    if (curl) Modifier
+                        // La pagina che se ne va sta sopra a quella che appare sotto.
+                        .zIndex(if (index < pager.currentPage + (if (pager.currentPageOffsetFraction > 0f) 1 else 0)) 1f else 0f)
+                        .graphicsLayer {
+                            // "Sfoglia": la pagina che esce ruota sul dorso e si apre come in un libro,
+                            // scoprendo quella successiva che resta ferma sotto.
+                            val d = (index - pager.currentPage) - pager.currentPageOffsetFraction
+                            val dir = if (rtl) -1f else 1f
+                            if (d > -1f && d < 1f) {
+                                translationX = -d * size.width * dir
+                                if (d < 0f) {
+                                    transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0.5f)
+                                    rotationY = 90f * d * dir
+                                    cameraDistance = 18f * density
+                                }
                             }
+                            alpha = if (d >= 1f || d <= -1f) 0f else 1f
                         }
-                        alpha = if (d >= 1f) 0f else 1f
-                    } else Modifier
+                    else Modifier
                 )
         ) {
             ZoomableSpread(loader, vm.visualPages(index), onTap = { x, zoomed ->
