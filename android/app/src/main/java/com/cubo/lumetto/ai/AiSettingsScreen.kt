@@ -1,5 +1,7 @@
 package com.cubo.lumetto.ai
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +33,8 @@ import com.cubo.lumetto.ui.settings.FormValue
 @Composable
 fun AiSettingsScreen() {
     val clipboard = LocalClipboardManager.current
+    // Android 13+: la notifica del servizio in primo piano richiede il permesso (senza, il servizio gira lo stesso).
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var confirmRegenerate by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf<String?>(null) }
     val urls = AiAccess.urls()
@@ -41,7 +45,10 @@ fun AiSettingsScreen() {
             footer = "Permette a un'AI (Claude, ChatGPT, agenti locali…) di leggere la tua libreria e usare Lumetto tramite MCP o REST. " +
                 "Resta spento finché non lo attivi; ogni richiesta richiede il token qui sotto.",
         ) {
-            FormToggle("Attiva accesso AI", AiAccess.enabled) { AiAccess.enabled = it }
+            FormToggle("Attiva accesso AI", AiAccess.enabled) {
+                if (it && android.os.Build.VERSION.SDK_INT >= 33) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                AiAccess.enabled = it
+            }
             FormDivider()
             FormValue("Stato", AiAccess.statusMessage)
             FormDivider()

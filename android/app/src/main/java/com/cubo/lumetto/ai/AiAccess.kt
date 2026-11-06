@@ -82,6 +82,7 @@ object AiAccess {
         server = null
         if (!_enabled) {
             statusMessage = "Spento"
+            AiService.stop(AppContext.context)
             return
         }
         try {
@@ -95,6 +96,7 @@ object AiAccess {
             s.start()
             server = s
             statusMessage = "Attivo su porta $_port"
+            AiService.start(AppContext.context)
         } catch (e: Exception) {
             statusMessage = "Non avviato: ${e.message ?: "errore"}"
         }

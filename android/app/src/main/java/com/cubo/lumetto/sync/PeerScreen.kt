@@ -176,7 +176,8 @@ fun PeerScreen(peerId: String) {
                     Column(Modifier.weight(1f)) {
                         Text(row.path.substringAfterLast('/').substringBeforeLast('.'), color = LColors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val folder = row.path.substringBeforeLast('/', "")
-                        val size = (row.remote?.size ?: row.localSize)?.let { Formatter.formatShortFileSize(context, it) } ?: ""
+                        val size = if (row.status == LibraryStatus.DIFFERENT) "qui ${row.localSize} B, là ${row.remote?.size} B"
+                        else (row.remote?.size ?: row.localSize)?.let { Formatter.formatShortFileSize(context, it) } ?: ""
                         Text(
                             listOf(folder, size).filter { it.isNotEmpty() }.joinToString(" · "),
                             color = LColors.textTertiary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
