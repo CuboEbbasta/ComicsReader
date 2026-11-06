@@ -78,12 +78,47 @@ fun ZoomableSpread(
     pages: List<Int>,
     onTap: (xFraction: Float, zoomed: Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    /** Vignetta o fumetto da inquadrare (lettura guidata); null = pagina intera. Solo per una pagina singola. */
+    focus: NormRect? = null,
 ) {
     val scope = rememberCoroutineScope()
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var box by remember { mutableStateOf(IntSize.Zero) }
     val images = pages.map { rememberPage(loader, it) }
+
+    // Inquadratura animata sul riquadro richiesto (o ritorno alla pagina intera).
+    var hadFocus by remember { mutableStateOf(false) }
+    val firstImage = images.firstOrNull()
+    LaunchedEffect(focus, box, firstImage != null, pages.size) {
+        if (box.width == 0 || box.height == 0) return@LaunchedEffect
+        var targetScale = 1f
+        var target = Offset.Zero
+        if (focus != null && pages.size == 1 && firstImage != null) {
+            val ratio = firstImage.width.toFloat() / maxOf(1, firstImage.height)
+            var h0 = box.height.toFloat()
+            var w0 = h0 * ratio
+            if (w0 > box.width) { w0 = box.width.toFloat(); h0 = w0 / ratio }
+            targetScale = minOf(box.width / (focus.width * w0), box.height / (focus.height * h0)).coerceIn(1f, 5f)
+            val maxX = maxOf(0f, (w0 * targetScale - box.width) / 2f)
+            val maxY = maxOf(0f, (h0 * targetScale - box.height) / 2f)
+            target = Offset(
+                (-targetScale * (focus.centerX - 0.5f) * w0).coerceIn(-maxX, maxX),
+                (-targetScale * (focus.centerY - 0.5f) * h0).coerceIn(-maxY, maxY),
+            )
+            hadFocus = true
+        } else if (!hadFocus) {
+            return@LaunchedEffect
+        } else {
+            hadFocus = false
+        }
+        val s0 = scale
+        val o0 = offset
+        animate(0f, 1f, animationSpec = tween(320)) { t, _ ->
+            scale = s0 + (targetScale - s0) * t
+            offset = o0 + (target - o0) * t
+        }
+    }
 
     fun clamp(o: Offset, s: Float): Offset {
         val maxX = (box.width * (s - 1f)) / 2f

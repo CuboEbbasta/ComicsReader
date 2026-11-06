@@ -36,6 +36,11 @@ object AppSettings {
         get() = _direction
         set(v) { _direction = v; p.edit().putString("settings.direction", v.raw).apply() }
 
+    private var _readingMode by mutableStateOf(com.cubo.lumetto.model.ReadingMode.STANDARD)
+    var defaultReadingMode: com.cubo.lumetto.model.ReadingMode
+        get() = _readingMode
+        set(v) { _readingMode = v; p.edit().putString("settings.defaultReadingMode", v.raw).apply() }
+
     private var _background by mutableStateOf(LibraryBackground.BLACK)
     var libraryBackground: LibraryBackground
         get() = _background
@@ -71,6 +76,7 @@ object AppSettings {
         _layout = PageLayoutMode.from(p.getString("settings.pageLayout", null)) ?: PageLayoutMode.SINGLE
         _transition = PageTransitionStyle.from(p.getString("settings.transition", null)) ?: PageTransitionStyle.SLIDE
         _direction = ReadingDirection.from(p.getString("settings.direction", null)) ?: ReadingDirection.AUTO
+        _readingMode = com.cubo.lumetto.model.ReadingMode.from(p.getString("settings.defaultReadingMode", null)) ?: com.cubo.lumetto.model.ReadingMode.STANDARD
         _background = LibraryBackground.from(p.getString("settings.background", null)) ?: LibraryBackground.BLACK
         _epubFont = EpubFont.from(p.getString("settings.epubFont", null)) ?: EpubFont.ORIGINAL
         _epubScale = p.getFloat("settings.epubFontScale", 1f).toDouble()

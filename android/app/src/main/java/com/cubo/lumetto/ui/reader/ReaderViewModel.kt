@@ -13,6 +13,7 @@ import com.cubo.lumetto.model.ComicFile
 import com.cubo.lumetto.model.PageLayoutMode
 import com.cubo.lumetto.model.PageTransitionStyle
 import com.cubo.lumetto.model.ReaderTheme
+import com.cubo.lumetto.model.ReadingMode
 import com.cubo.lumetto.model.ReadingDirection
 import com.cubo.lumetto.model.nowMs
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +54,71 @@ class ReaderViewModel(val comic: ComicFile) {
     var mode: PageTransitionStyle
         get() = _mode
         set(v) { if (v != _mode) { _mode = v; ComicPrefs.set(v.raw, "mode", path); rebuildSpreads() } }
+
+    private var _readingMode by mutableStateOf(ReadingMode.from(ComicPrefs.value("readingMode", path)) ?: AppSettings.defaultReadingMode)
+    var readingMode: ReadingMode
+        get() = _readingMode
+        set(v) {
+            if (v == _readingMode) return
+            _readingMode = v
+            ComicPrefs.set(v.raw, "readingMode", path)
+            focusRects = emptyMap()
+            focusIndex = 0
+            rebuildSpreads()
+        }
+
+    /** Lettura guidata / zoom sui fumetti attivi (non nel verticale, che scorre in continuo). */
+    val isFocusMode: Boolean get() = readingMode != ReadingMode.STANDARD && mode != PageTransitionStyle.VERTICAL
+
+    /** Vignette o fumetti riconosciuti per pagina (lista vuota = niente da inquadrare). */
+    var focusRects by mutableStateOf<Map<Int, List<NormRect>>>(emptyMap())
+        private set
+    var focusIndex by mutableIntStateOf(0)
+        private set
+    private var focusAtEnd = false
+    private val analyzing = HashSet<Int>()
+
+    /** Il riquadro da inquadrare sulla pagina corrente, o null (pagina intera). */
+    val currentFocus: NormRect?
+        get() {
+            if (!isFocusMode) return null
+            val list = focusRects[currentPage] ?: return null
+            if (list.isEmpty()) return null
+            val pad = if (readingMode == ReadingMode.BUBBLE) 0.35f else 0.03f
+            return list[focusIndex.coerceIn(0, list.size - 1)].expanded(pad)
+        }
+
+    val hasFocusSteps: Boolean get() = isFocusMode && !focusRects[currentPage].isNullOrEmpty()
+
+    fun ensureRects(page: Int) {
+        if (!isFocusMode || page !in 0 until pageCount || focusRects.containsKey(page) || !analyzing.add(page)) return
+        val ld = loader ?: run { analyzing.remove(page); return }
+        val mode = readingMode
+        val rtl = isRightToLeft
+        scope.launch {
+            val bmp = ld.load(page, PageLoader.Kind.FULL)
+            val rects = if (bmp == null) emptyList() else withContext(Dispatchers.Default) { FocusAnalysis.analyze(bmp, mode, rtl) }
+            analyzing.remove(page)
+            if (mode != readingMode || rtl != isRightToLeft) return@launch
+            focusRects = focusRects + (page to rects)
+            if (page == currentPage) applyFocusStart(rects.size)
+        }
+    }
+
+    private fun applyFocusStart(count: Int) {
+        focusIndex = if (focusAtEnd) (count - 1).coerceAtLeast(0) else 0
+        focusAtEnd = false
+    }
+
+    private fun focusStep(visualRight: Boolean) {
+        val forward = visualRight != isRightToLeft
+        val size = focusRects[currentPage]?.size ?: 0
+        if (forward && focusIndex + 1 < size) { focusIndex++; return }
+        if (!forward && focusIndex > 0) { focusIndex--; return }
+        if (targetSpread(visualRight) !in 0 until spreads.size) return
+        focusAtEnd = !forward
+        turnRequest = visualRight to ((turnRequest?.second ?: 0) + 1)
+    }
 
     private var _directionSetting by mutableStateOf(ReadingDirection.from(ComicPrefs.value("direction", path)) ?: ReadingDirection.AUTO)
     var directionSetting: ReadingDirection
@@ -115,6 +181,7 @@ class ReaderViewModel(val comic: ComicFile) {
             val manga = m.manga == true || m.languageISO?.lowercase()?.startsWith("ja") == true || path.lowercase().contains("manga")
             resolved = if (manga) ReadingDirection.RIGHT_TO_LEFT else ReadingDirection.LEFT_TO_RIGHT
         }
+        if (direction != resolved) focusRects = emptyMap()
         direction = resolved
     }
 
@@ -122,7 +189,7 @@ class ReaderViewModel(val comic: ComicFile) {
 
     // --- impaginazione ---
 
-    val effectiveLayout: PageLayoutMode get() = if (mode == PageTransitionStyle.VERTICAL) PageLayoutMode.SINGLE else layout
+    val effectiveLayout: PageLayoutMode get() = if (mode == PageTransitionStyle.VERTICAL || isFocusMode) PageLayoutMode.SINGLE else layout
 
     private fun rebuildSpreads() {
         val count = pageCount
@@ -191,6 +258,10 @@ class ReaderViewModel(val comic: ComicFile) {
             goToPage(currentPage + if (visualRight) 1 else -1)
             return
         }
+        if (hasFocusSteps) {
+            focusStep(visualRight)
+            return
+        }
         turnRequest = visualRight to ((turnRequest?.second ?: 0) + 1)
     }
 
@@ -201,7 +272,12 @@ class ReaderViewModel(val comic: ComicFile) {
     }
 
     private fun setPage(page: Int) {
+        val changed = page != currentPage
         currentPage = page
+        if (changed) {
+            val known = focusRects[page]
+            if (known != null) applyFocusStart(known.size) else { focusIndex = 0 }
+        }
         if (spreads.lastOrNull()?.contains(page) == true && !showControls) showControls = true
         val spread = spreads.getOrNull(currentSpreadIndex) ?: listOf(page)
         pagesSeen.addAll(spread)

@@ -247,6 +247,11 @@ private fun PagedReaderContent(vm: ReaderViewModel, loader: PageLoader, rtl: Boo
             if (abs(pager.currentPage - target) == 1) pager.animateScrollToPage(target) else pager.scrollToPage(target)
         }
     }
+    // Lettura guidata / zoom sui fumetti: analizza la pagina corrente e la successiva.
+    LaunchedEffect(vm.currentPage, vm.readingMode, vm.focusRects.isEmpty()) {
+        vm.ensureRects(vm.currentPage)
+        vm.ensureRects(vm.currentPage + 1)
+    }
     // Frecce e tocchi.
     val request = vm.turnRequest
     LaunchedEffect(request?.second) {
@@ -292,9 +297,13 @@ private fun PagedReaderContent(vm: ReaderViewModel, loader: PageLoader, rtl: Boo
                     else Modifier
                 )
         ) {
-            ZoomableSpread(loader, vm.visualPages(index), onTap = { x, zoomed ->
-                if (zoomed || x in 0.28f..0.72f) vm.showControls = !vm.showControls else vm.turn(x > 0.72f)
-            })
+            ZoomableSpread(
+                loader, vm.visualPages(index),
+                onTap = { x, zoomed ->
+                    if ((zoomed && !vm.hasFocusSteps) || x in 0.28f..0.72f) vm.showControls = !vm.showControls else vm.turn(x > 0.72f)
+                },
+                focus = if (index == vm.currentSpreadIndex) vm.currentFocus else null,
+            )
         }
     }
 }
@@ -513,8 +522,19 @@ private fun ReaderModesSheet(vm: ReaderViewModel) {
                 Segmented(PageTransitionStyle.entries, vm.mode, { it.displayName }) { vm.mode = it }
             }
             if (vm.mode != PageTransitionStyle.VERTICAL) {
-                Group("Pagine") {
-                    Segmented(PageLayoutMode.entries, vm.layout, { it.shortName }) { vm.layout = it }
+                Group("Zoom") {
+                    Segmented(com.cubo.lumetto.model.ReadingMode.entries, vm.readingMode, { it.shortName }) { vm.readingMode = it }
+                }
+                if (vm.readingMode != com.cubo.lumetto.model.ReadingMode.STANDARD) {
+                    Text(
+                        if (vm.readingMode == com.cubo.lumetto.model.ReadingMode.GUIDED) "Tocca i bordi per passare da una vignetta all'altra."
+                        else "Tocca i bordi per passare da un fumetto all'altro (se non ne trova, usa le vignette).",
+                        color = LColors.textSecondary, fontSize = 12.sp,
+                    )
+                } else {
+                    Group("Pagine") {
+                        Segmented(PageLayoutMode.entries, vm.layout, { it.shortName }) { vm.layout = it }
+                    }
                 }
             }
             Group("Direzione di lettura") {

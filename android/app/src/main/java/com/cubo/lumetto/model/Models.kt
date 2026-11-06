@@ -48,6 +48,17 @@ enum class PageTransitionStyle(val raw: String, val displayName: String) {
     }
 }
 
+/** Modalità di lettura (stessi nomi dell'iPad): pagina intera, una vignetta alla volta, zoom sui fumetti. */
+enum class ReadingMode(val raw: String, val displayName: String, val shortName: String) {
+    STANDARD("standard", "Standard", "Standard"),
+    GUIDED("guidedView", "Lettura guidata (GVN)", "Vignette"),
+    BUBBLE("bubbleZoom", "Bubble Zoom", "Fumetti");
+
+    companion object {
+        fun from(raw: String?) = entries.firstOrNull { it.raw == raw }
+    }
+}
+
 enum class ReaderTheme(val raw: String, val displayName: String, val hex: Long) {
     BLACK("black", "Nero", 0xFF000000),
     GRAPHITE("graphite", "Grafite", 0xFF1C1C1F),

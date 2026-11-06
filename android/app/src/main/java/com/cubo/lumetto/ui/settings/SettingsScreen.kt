@@ -257,6 +257,8 @@ private fun MainSettings(activity: MainActivity, openSync: () -> Unit, openStats
             FormDivider()
             FormPicker("Pagine", AppSettings.pageLayout, PageLayoutMode.entries, { it.displayName }) { AppSettings.pageLayout = it }
             FormDivider()
+            FormPicker("Modalità", AppSettings.defaultReadingMode, com.cubo.lumetto.model.ReadingMode.entries, { it.displayName }) { AppSettings.defaultReadingMode = it }
+            FormDivider()
             FormPicker("Transizione", AppSettings.transition, PageTransitionStyle.entries, { it.displayName }) { AppSettings.transition = it }
         }
 
