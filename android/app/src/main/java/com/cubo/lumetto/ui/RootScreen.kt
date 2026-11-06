@@ -89,6 +89,8 @@ private fun LibraryHost(activity: MainActivity) {
             ReaderContainer(reading, onClose = { AppRouter.openedComic = null })
         }
     }
+    // Conferme per le operazioni sui file chieste da un'AI (spostare, rinominare, creare cartelle).
+    com.cubo.lumetto.ai.AiConfirmDialog()
 }
 
 @Composable

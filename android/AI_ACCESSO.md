@@ -29,6 +29,8 @@ Sola lettura: `library_overview`, `list_folder`, `search`, `get_comic`, `continu
 
 Con «Consenti modifiche»: `set_metadata`, `clear_metadata_edit`, `set_progress`, `set_completed`, `reset_progress`, `toggle_bookmark`, `remove_highlight`, `recolor_highlight`, `set_setting`, `rescan_library`, `open_comic`.
 
+Operazioni sui file, sempre dentro la cartella principale e **con conferma sul telefono** (compare una finestra «Un'AI chiede…» che si deve accettare entro un minuto, con Lumetto aperto): `create_folder`, `move_comic` (non cambia il nome, non sovrascrive), `rename_comic` (l'estensione resta). Servono «Consenti modifiche» e il permesso di scrittura sulla cartella. Dopo uno spostamento progressi, segnalibri, metadati ed evidenziazioni seguono il file; sull'altro dispositivo il fumetto risulterà con il percorso vecchio finché non lo si sposta anche lì.
+
 Le pagine si contano da 0. I percorsi sono relativi alla cartella principale (come nel sync). Le modifiche passano dagli stessi store dell'interfaccia, quindi si sincronizzano con l'iPad secondo `SYNC_PROTOCOLLO.md`.
 
 ## Sicurezza
@@ -43,10 +45,10 @@ Codice: `app/src/main/java/com/cubo/lumetto/ai/`. Test: `app/src/test/.../ai/AiA
 Dal PC: vedi `../tools/lumetto-bridge/` (ponte stdio per Claude Desktop, Claude Code e altri client MCP).
 
 ## Come verificare che funzioni
-1. **Sul telefono**: Impostazioni → Accesso AI → attiva, poi «Verifica funzionamento». Deve scrivere «OK: il server funziona (23 strumenti)».
+1. **Sul telefono**: Impostazioni → Accesso AI → attiva, poi «Verifica funzionamento». Deve scrivere «OK: il server funziona (26 strumenti)».
 2. **Dal PC** (stessa rete Wi-Fi), con indirizzo e token mostrati nella schermata:
    - `curl http://IP:8765/health` → `{"app":"Lumetto","ai":true}`
-   - `node tools/lumetto-bridge/bridge.mjs --url http://IP:8765 --token lum_... --check` → «token valido, 23 strumenti disponibili»
+   - `node tools/lumetto-bridge/bridge.mjs --url http://IP:8765 --token lum_... --check` → «token valido, 26 strumenti disponibili»
    - `curl -X POST http://IP:8765/api/tools/library_overview -H "Authorization: Bearer lum_..."` → panoramica della libreria
 3. **Con un'AI**: aggiungi il server e chiedi «elenca le cartelle della mia libreria Lumetto».
    - Claude Code: `claude mcp add --transport http lumetto http://IP:8765/mcp --header "Authorization: Bearer lum_..."`

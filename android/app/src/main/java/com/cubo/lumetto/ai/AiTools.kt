@@ -6,6 +6,10 @@ import android.util.Base64
 import com.cubo.lumetto.archive.EpubParser
 import com.cubo.lumetto.archive.ZipArchive
 import com.cubo.lumetto.data.AppSettings
+import com.cubo.lumetto.data.FileAccess
+import com.cubo.lumetto.data.LibraryMoves
+import com.cubo.lumetto.data.SafWriter
+import com.cubo.lumetto.sync.SyncFiles
 import com.cubo.lumetto.data.AppRouter
 import com.cubo.lumetto.data.HighlightStore
 import com.cubo.lumetto.data.LibraryStore
@@ -40,7 +44,8 @@ object AiTools : ToolHost {
         "Lumetto è un lettore di fumetti, manga ed EPUB. Usa library_overview per iniziare, poi list_folder o search per trovare " +
             "i file; i percorsi sono relativi alla cartella principale. Le pagine si contano da 0. Per vedere una pagina usa " +
             "get_page_image, per leggere un EPUB epub_chapters ed epub_text. Gli strumenti che modificano dati o aprono schermate " +
-            "funzionano solo se l'utente ha attivato «Consenti modifiche» nelle impostazioni."
+            "funzionano solo se l'utente ha attivato «Consenti modifiche» nelle impostazioni. Spostare, rinominare file e creare cartelle " +
+            "(sempre sotto la cartella principale) richiede anche una conferma sul telefono: l'utente deve avere Lumetto aperto."
 
     private const val MAX_TEXT = 30_000
 
@@ -104,6 +109,13 @@ object AiTools : ToolHost {
             "epubFont (original|serif|sans), epubFontScale (0.6-2.0), maxFolderDepth (1-20).",
             obj(mapOf("key" to str("Nome dell'impostazione"), "value" to str("Nuovo valore")), listOf("key", "value")), false),
         ToolSpec("rescan_library", "Riesegue la scansione della cartella principale.", obj(), false),
+        ToolSpec("create_folder", "Crea una cartella (anche annidata) sotto la cartella principale. Chiede conferma sul telefono.",
+            obj(mapOf("path" to str("Percorso relativo della nuova cartella, es. Manga/One Piece")), listOf("path")), false),
+        ToolSpec("move_comic", "Sposta un fumetto in un'altra cartella sotto la cartella principale (la crea se manca), senza cambiare nome e senza sovrascrivere. " +
+            "Progressi, segnalibri e metadati lo seguono. Chiede conferma sul telefono.",
+            obj(mapOf("path" to pathProp, "to_folder" to str("Cartella di destinazione, relativa alla principale; vuoto = cartella principale")), listOf("path", "to_folder")), false),
+        ToolSpec("rename_comic", "Rinomina un fumetto nella sua cartella (l'estensione resta quella). Non sovrascrive. Chiede conferma sul telefono.",
+            obj(mapOf("path" to pathProp, "new_name" to str("Nuovo nome del file, senza cartelle")), listOf("path", "new_name")), false),
         ToolSpec("open_comic", "Apre un file nel lettore, sullo schermo del telefono.", obj(mapOf("path" to pathProp), listOf("path")), false),
     )
 
@@ -145,6 +157,9 @@ object AiTools : ToolHost {
             }
             "set_setting" -> setSetting(args.optString("key", ""), args.optString("value", ""))
             "rescan_library" -> { mainThread { LibraryStore.refresh() }; ToolResult.text("Scansione avviata.") }
+            "create_folder" -> createFolder(args.optString("path", "").trim().trim('/'))
+            "move_comic" -> withComic(args) { moveComic(it, args.optString("to_folder", "").trim().trim('/')) }
+            "rename_comic" -> withComic(args) { renameComic(it, args.optString("new_name", "")) }
             "open_comic" -> withComic(args) { c -> mainThread { AppRouter.open(c) }; ToolResult.text("Aperto: ${LibraryStore.title(c)}") }
             else -> ToolResult.error("Strumento non implementato: $name")
         }
@@ -362,6 +377,75 @@ object AiTools : ToolHost {
     private fun highlightAction(id: String, action: (String) -> String): ToolResult {
         if (HighlightStore.all.none { it.id == id }) return ToolResult.error("Evidenziazione non trovata.")
         return ToolResult.text(mainThread { action(id) })
+    }
+
+    // --- file: sempre sotto la cartella principale e con conferma sul telefono ---
+
+    private fun fileGuard(): ToolResult? {
+        if (FileAccess.rootUri == null) return ToolResult.error("Nessuna cartella dei fumetti scelta.")
+        if (!FileAccess.canWrite) {
+            return ToolResult.error("Lumetto non ha il permesso di scrivere nella cartella dei fumetti: sul telefono scegli di nuovo la stessa cartella e concedi l'accesso.")
+        }
+        return null
+    }
+
+    private fun confirmOnPhone(title: String, detail: String): ToolResult? =
+        if (AiConfirm.ask(title, detail)) null
+        else ToolResult.error("Operazione non confermata sul telefono (rifiutata o nessuna risposta entro un minuto): apri Lumetto sul telefono e riprova.")
+
+    private fun createFolder(path: String): ToolResult {
+        if (!SyncFiles.isSafe(path)) return ToolResult.error("Percorso non valido: deve essere relativo alla cartella principale, senza «..» né «/» iniziale.")
+        fileGuard()?.let { return it }
+        val root = FileAccess.rootUri!!
+        if (SafWriter.exists(root, path)) return ToolResult.error("Esiste già: $path")
+        confirmOnPhone("creare una cartella", "«$path»")?.let { return it }
+        return try {
+            SafWriter.ensureFolder(root, path.split('/'))
+            ToolResult.text("Cartella creata: $path")
+        } catch (e: Exception) {
+            ToolResult.error("Non riuscito: ${e.message}")
+        }
+    }
+
+    private fun placeName(folder: String) = folder.ifEmpty { "(cartella principale)" }
+
+    private fun moveComic(c: ComicFile, folder: String): ToolResult {
+        if (folder.isNotEmpty() && !SyncFiles.isSafe(folder)) return ToolResult.error("Cartella non valida: deve essere relativa alla cartella principale, senza «..».")
+        val newPath = if (folder.isEmpty()) c.fileName else "$folder/${c.fileName}"
+        if (newPath == c.relativePath) return ToolResult.error("Il fumetto è già in quella cartella.")
+        if (LibraryStore.comicIncludingHidden(newPath) != null) return ToolResult.error("Nella destinazione esiste già un file con questo nome: $newPath")
+        fileGuard()?.let { return it }
+        confirmOnPhone(
+            "spostare un fumetto",
+            "«${LibraryStore.title(c)}»\n\nDa: ${placeName(c.folderPath)}\nA: ${placeName(folder)}\n\nProgressi, segnalibri e metadati restano.",
+        )?.let { return it }
+        return try {
+            SafWriter.move(FileAccess.rootUri!!, c.relativePath, folder)
+            mainThread { LibraryMoves.migrate(c.relativePath, newPath); LibraryStore.refresh() }
+            ToolResult.text("Spostato: ${c.relativePath} → $newPath")
+        } catch (e: Exception) {
+            ToolResult.error("Non riuscito: ${e.message}")
+        }
+    }
+
+    private fun renameComic(c: ComicFile, newName: String): ToolResult {
+        val raw = newName.trim()
+        if (raw.isEmpty() || raw.length > 200 || raw.any { it == '/' || it == '\\' || it.code < 32 }) return ToolResult.error("Nome non valido: niente cartelle né caratteri speciali.")
+        val ext = c.fileName.substringAfterLast('.', "")
+        val finalName = if (raw.endsWith(".$ext", ignoreCase = true)) raw else "$raw.$ext"
+        if (!SyncFiles.isSafe(finalName)) return ToolResult.error("Nome non valido.")
+        val newPath = if (c.folderPath.isEmpty()) finalName else "${c.folderPath}/$finalName"
+        if (newPath == c.relativePath) return ToolResult.error("Il file ha già questo nome.")
+        if (LibraryStore.comicIncludingHidden(newPath) != null) return ToolResult.error("Esiste già un file con questo nome: $newPath")
+        fileGuard()?.let { return it }
+        confirmOnPhone("rinominare un fumetto", "Da: ${c.fileName}\nA: $finalName\n\nProgressi, segnalibri e metadati restano.")?.let { return it }
+        return try {
+            SafWriter.rename(FileAccess.rootUri!!, c.relativePath, finalName)
+            mainThread { LibraryMoves.migrate(c.relativePath, newPath); LibraryStore.refresh() }
+            ToolResult.text("Rinominato: ${c.relativePath} → $newPath")
+        } catch (e: Exception) {
+            ToolResult.error("Non riuscito: ${e.message}")
+        }
     }
 
     private fun setSetting(key: String, value: String): ToolResult {

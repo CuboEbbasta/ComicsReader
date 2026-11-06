@@ -107,6 +107,15 @@ object ComicPrefs {
         return if (entry.has(field)) entry.optString(field) else null
     }
 
+    /** Spostamento/rinomina di un fumetto: le sue preferenze (direzione, modalità, tema, posizione) lo seguono. */
+    fun rekey(old: String, new: String) {
+        val root = all()
+        val entry = root.optJSONObject(old) ?: return
+        root.remove(old)
+        root.put(new, entry)
+        AppContext.prefs.edit().putString(KEY, root.toString()).apply()
+    }
+
     fun set(value: String?, field: String, path: String) {
         val root = all()
         val entry = root.optJSONObject(path) ?: JSONObject()

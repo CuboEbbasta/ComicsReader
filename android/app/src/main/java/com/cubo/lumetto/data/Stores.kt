@@ -210,6 +210,25 @@ object ProgressStore {
         scheduleSave()
     }
 
+    /**
+     * Un fumetto cambia percorso (spostato o rinominato): progresso e segnalibri passano alla nuova chiave.
+     * I segnalibri ricevono nuovi id (senza data di modifica non si potrebbe risolvere un conflitto tra dispositivi);
+     * le vecchie chiavi lasciano una lapide. Le sessioni restano come storico.
+     */
+    fun rekey(old: String, new: String) {
+        val p = progress[old]
+        if (p != null) {
+            TombstoneStore.mark(TombKind.PROGRESS, old)
+            progress = progress - old + (new to p.copy(relativePath = new, modifiedAt = nowMs()))
+        }
+        val moved = bookmarks.filter { it.relativePath == old }
+        if (moved.isNotEmpty()) {
+            TombstoneStore.mark(TombKind.BOOKMARKS, moved.map { it.id })
+            bookmarks = bookmarks.filter { it.relativePath != old } + moved.map { PageBookmark(newUuid(), new, it.pageIndex, it.createdAt) }
+        }
+        scheduleSave()
+    }
+
     // --- statistiche ---
 
     val completedCount get() = progress.values.count { it.isCompleted }
@@ -310,6 +329,16 @@ object MetadataStore {
         LocalChanges.notifyChanged()
     }
 
+    /** Spostamento/rinomina di un fumetto: le modifiche manuali passano al nuovo percorso. */
+    fun rekey(old: String, new: String) {
+        val e = edits[old] ?: return
+        TombstoneStore.mark(TombKind.METADATA, old)
+        edits = edits - old + (new to e)
+        editStamps = editStamps - old + (new to nowMs())
+        scheduleSave()
+        LocalChanges.notifyChanged()
+    }
+
     fun clearEdit(comic: ComicFile) {
         edits = edits - comic.relativePath
         editStamps = editStamps - comic.relativePath
@@ -370,6 +399,13 @@ object HighlightStore {
         save()
     }
 
+    /** Spostamento/rinomina di un EPUB: le evidenziazioni seguono il file (la data di modifica fa vincere la nuova versione). */
+    fun rekey(old: String, new: String) {
+        if (all.none { it.path == old }) return
+        all = all.map { if (it.path == old) it.copy(path = new, modifiedAt = nowMs()) else it }
+        save()
+    }
+
     fun recolor(id: String, color: HighlightColor) {
         all = all.map { if (it.id == id) it.copy(color = color, modifiedAt = nowMs()) else it }
         save()
@@ -411,6 +447,15 @@ object IncognitoStore {
         } else {
             hidden + (path to nowMs())
         }
+        persist()
+        LocalChanges.notifyChanged()
+    }
+
+    /** Spostamento/rinomina di un fumetto nascosto: resta nascosto al nuovo percorso. */
+    fun rekey(old: String, new: String) {
+        if (!hidden.containsKey(old)) return
+        TombstoneStore.mark(TombKind.HIDDEN, old)
+        hidden = hidden - old + (new to nowMs())
         persist()
         LocalChanges.notifyChanged()
     }

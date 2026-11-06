@@ -112,6 +112,89 @@ object SafWriter {
         else -> "application/octet-stream"
     }
 
+    private fun docUri(tree: Uri, docId: String) = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+
+    /** Cerca un file o una cartella lungo il percorso relativo; null se non esiste. Percorso vuoto = cartella principale. */
+    fun docIdFor(tree: Uri, parts: List<String>): String? {
+        var id = DocumentsContract.getTreeDocumentId(tree)
+        for (p in parts) id = findChild(tree, id, p)?.docId ?: return null
+        return id
+    }
+
+    fun exists(tree: Uri, relativePath: String): Boolean = docIdFor(tree, relativePath.split('/')) != null
+
+    /** Crea la cartella (e le sue superiori se mancano) sotto la cartella principale; restituisce l'id. */
+    fun ensureFolder(tree: Uri, parts: List<String>): String {
+        val resolver = AppContext.context.contentResolver
+        var id = DocumentsContract.getTreeDocumentId(tree)
+        for (dir in parts) {
+            val existing = findChild(tree, id, dir)
+            id = if (existing != null) {
+                if (existing.mime != DocumentsContract.Document.MIME_TYPE_DIR) throw java.io.IOException("«$dir» esiste già come file.")
+                existing.docId
+            } else {
+                val created = DocumentsContract.createDocument(resolver, docUri(tree, id), DocumentsContract.Document.MIME_TYPE_DIR, dir)
+                    ?: throw java.io.IOException("Impossibile creare la cartella «$dir».")
+                DocumentsContract.getDocumentId(created)
+            }
+        }
+        return id
+    }
+
+    /** Dimensione di un documento (o -1). */
+    private fun sizeOf(uri: Uri): Long =
+        AppContext.context.contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L
+        } ?: -1L
+
+    /**
+     * Sposta un file in un'altra cartella sotto la cartella principale (che si crea se manca), senza cambiare nome.
+     * Prima prova lo spostamento del sistema; se il fornitore non lo supporta copia, controlla le dimensioni e solo poi toglie l'originale.
+     * Non sovrascrive mai: se la destinazione esiste, errore.
+     */
+    fun move(tree: Uri, fromPath: String, toFolder: String) {
+        val resolver = AppContext.context.contentResolver
+        val parts = fromPath.split('/')
+        val name = parts.last()
+        val srcId = docIdFor(tree, parts) ?: throw java.io.IOException("File non trovato.")
+        val srcParentId = docIdFor(tree, parts.dropLast(1)) ?: throw java.io.IOException("Cartella di origine non trovata.")
+        val destParentId = ensureFolder(tree, if (toFolder.isEmpty()) emptyList() else toFolder.split('/'))
+        if (findChild(tree, destParentId, name) != null) throw java.io.IOException("Nella cartella di destinazione esiste già «$name».")
+        if (srcParentId == destParentId) throw java.io.IOException("Il file è già in quella cartella.")
+        val src = docUri(tree, srcId)
+        val moved = try {
+            DocumentsContract.moveDocument(resolver, src, docUri(tree, srcParentId), docUri(tree, destParentId))
+        } catch (e: Exception) {
+            null
+        }
+        if (moved != null) return
+        // Ripiego: copia verificata, poi l'originale.
+        val target = DocumentsContract.createDocument(resolver, docUri(tree, destParentId), mimeFor(name), name)
+            ?: throw java.io.IOException("Impossibile creare il file di destinazione.")
+        try {
+            val input = resolver.openInputStream(src) ?: throw java.io.IOException("Impossibile leggere il file.")
+            val output = resolver.openOutputStream(target, "w") ?: throw java.io.IOException("Impossibile scrivere il file.")
+            input.use { i -> output.use { o -> i.copyTo(o, 1 shl 20) } }
+            val a = sizeOf(src)
+            val b = sizeOf(target)
+            if (a < 0 || b < 0 || a != b) throw java.io.IOException("La copia non coincide con l'originale: spostamento annullato.")
+        } catch (e: Exception) {
+            runCatching { DocumentsContract.deleteDocument(resolver, target) }
+            throw e
+        }
+        DocumentsContract.deleteDocument(resolver, src)
+    }
+
+    /** Rinomina un file nella sua cartella. Non sovrascrive: se il nome esiste, errore. */
+    fun rename(tree: Uri, path: String, newName: String) {
+        val parts = path.split('/')
+        val srcId = docIdFor(tree, parts) ?: throw java.io.IOException("File non trovato.")
+        val parentId = docIdFor(tree, parts.dropLast(1)) ?: throw java.io.IOException("Cartella non trovata.")
+        if (findChild(tree, parentId, newName) != null) throw java.io.IOException("Esiste già «$newName» in quella cartella.")
+        DocumentsContract.renameDocument(AppContext.context.contentResolver, docUri(tree, srcId), newName)
+            ?: throw java.io.IOException("Il sistema non permette di rinominare questo file.")
+    }
+
     /** Copia [source] in [relativePath] dentro la cartella [tree], sostituendo un file con lo stesso nome. Poi cancella [source]. */
     fun install(tree: Uri, relativePath: String, source: java.io.File) {
         val resolver = AppContext.context.contentResolver
